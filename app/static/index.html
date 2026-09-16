@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <title>Jarvis</title>
+  <meta name="description" content="Personal AI assistant — chat and daily mood check-ins." />
+
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="stylesheet" href="/static/styles.css" />
+
+  <!-- iOS standalone / home-screen behaviour -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Jarvis" />
+  <meta name="theme-color" content="#090d16" />
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+</head>
+<body>
+
+<!-- Passcode gate -->
+<div id="lock" class="lock hidden">
+  <form id="lock-form" class="lock-card">
+    <h1>Jarvis</h1>
+    <p>Enter your passcode to continue.</p>
+    <input id="lock-input" type="password" inputmode="text" autocomplete="current-password"
+           placeholder="Passcode" aria-label="Passcode" />
+    <button type="submit" class="primary">Unlock</button>
+    <p id="lock-error" class="lock-error" role="alert"></p>
+  </form>
+</div>
+
+<div id="app" class="app hidden">
+
+  <header class="topbar">
+    <div class="topbar-main">
+      <h1 id="greeting">Hello</h1>
+      <p id="subtitle" class="subtitle">Connecting…</p>
+    </div>
+    <button id="logs-toggle" class="icon-btn" aria-label="Toggle live telemetry" title="Live telemetry">◍</button>
+  </header>
+
+  <div id="banner" class="banner hidden" role="status"></div>
+
+  <!-- Mood check-in -->
+  <section class="card" aria-labelledby="mood-heading">
+    <h2 id="mood-heading">How are you doing?</h2>
+    <div id="mood-scale" class="mood-scale" role="group" aria-label="Mood score"></div>
+    <textarea id="mood-note" rows="2" maxlength="2000"
+              placeholder="Anything on your mind? (optional)" aria-label="Mood note"></textarea>
+    <button id="mood-submit" class="primary" disabled>Check in</button>
+    <div id="mood-trend" class="trend hidden">
+      <span class="trend-label">Recent</span>
+      <div id="trend-bars" class="trend-bars"></div>
+      <span id="trend-avg" class="trend-avg"></span>
+    </div>
+  </section>
+
+  <!-- Conversation -->
+  <section class="card conversation" aria-labelledby="chat-heading">
+    <h2 id="chat-heading">Conversation</h2>
+    <div id="messages" class="messages" aria-live="polite"></div>
+    <form id="chat-form" class="chat-form">
+      <input id="chat-input" type="text" maxlength="8000" autocomplete="off"
+             placeholder="Say hi to Jarvis…" aria-label="Message" />
+      <button type="submit" class="primary" aria-label="Send">↑</button>
+    </form>
+  </section>
+
+  <!-- Approvals: rendered only when something is parked awaiting a decision -->
+  <section id="approvals" class="card approvals hidden" aria-labelledby="approvals-heading">
+    <h2 id="approvals-heading">⚠️ Approval needed</h2>
+    <div id="approval-list"></div>
+  </section>
+
+  <!-- Mission control -->
+  <section class="card" aria-labelledby="missions-heading">
+    <h2 id="missions-heading">Missions</h2>
+    <form id="mission-form" class="chat-form">
+      <input id="mission-input" type="text" maxlength="8000" autocomplete="off"
+             placeholder="Give Jarvis a goal…" aria-label="Mission goal" />
+      <button type="submit" class="primary" aria-label="Start mission">▶</button>
+    </form>
+    <div id="mission-list" class="mission-list"></div>
+  </section>
+
+  <!-- Memory -->
+  <section class="card" aria-labelledby="memory-heading">
+    <h2 id="memory-heading">Memory</h2>
+    <p class="hint">Everything Jarvis believes about you. Search it, correct it, delete it.</p>
+
+    <form id="memory-search-form" class="chat-form">
+      <input id="memory-query" type="text" maxlength="1000" autocomplete="off"
+             placeholder="Search memory…" aria-label="Search memory" />
+      <button type="submit" class="primary" aria-label="Search">⌕</button>
+    </form>
+
+    <div id="memory-scopes" class="scope-chips" role="group" aria-label="Filter by scope"></div>
+    <div id="memory-method" class="memory-method hidden"></div>
+    <div id="memory-list" class="memory-list"></div>
+
+    <details class="memory-add">
+      <summary>Add a fact</summary>
+      <form id="memory-add-form">
+        <input id="memory-new-key" type="text" maxlength="200" placeholder="key (e.g. city)" aria-label="Key" />
+        <input id="memory-new-value" type="text" maxlength="4000" placeholder="value (e.g. Pune)" aria-label="Value" />
+        <button type="submit" class="primary">Remember this</button>
+      </form>
+    </details>
+  </section>
+
+  <!-- Live telemetry -->
+  <section id="logs-panel" class="card logs hidden" aria-labelledby="logs-heading">
+    <h2 id="logs-heading">Live telemetry</h2>
+    <p class="hint">Every turn is logged as training data. Rate replies with 👍 / 👎 — that becomes the reward signal.</p>
+    <div id="logs" class="logs-stream" aria-live="off"></div>
+    <div class="logs-actions">
+      <span id="stats" class="stats"></span>
+      <button id="export-btn" class="ghost">Export dataset</button>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <span id="engine-badge" class="badge">—</span>
+    <span id="storage-badge" class="badge">—</span>
+  </footer>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

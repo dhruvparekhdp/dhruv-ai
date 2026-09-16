@@ -1,0 +1,10 @@
+# Dependencies for `mcp_server.py` only.
+#
+# Kept out of requirements.txt on purpose: the MCP server runs wherever Claude
+# runs, not on the host, and requirements.txt is installed on every deploy
+# where build time is deploy latency. Nothing in app/ imports this.
+#
+#   pip install -r requirements-mcp.txt
+
+mcp==1.2.0
+httpx==0.28.1   # already a runtime dep; pinned to the same version

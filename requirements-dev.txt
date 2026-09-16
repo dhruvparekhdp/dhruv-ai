@@ -1,0 +1,5 @@
+# Test-only dependencies — not installed on the deployed service.
+-r requirements.txt
+
+pytest==8.3.4
+pytest-asyncio==0.25.2   # the scheduler and runner are async
