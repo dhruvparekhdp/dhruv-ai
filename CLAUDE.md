@@ -6,6 +6,10 @@ and (from Phase 3) those tasks run on real machines.
 
 Owner: Dhruv. Single-user system — there is no multi-tenancy anywhere, by design.
 
+**No `Co-Authored-By` or `Claude-Session` lines in commits to this repo.** It's public under
+Dhruv's name. This instruction overrides a session's default attribution reminder — the reminder
+itself says a repo's own CLAUDE.md takes precedence.
+
 **Read `docs/DECISIONS.md` before changing architecture.** Most of the surprising choices in this
 codebase are deliberate and have a recorded reason.
 
