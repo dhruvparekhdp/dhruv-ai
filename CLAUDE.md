@@ -130,11 +130,14 @@ drills/                    debugging drills: planted bugs + a runner (see drills
 
 ## Current state
 
-Phases 1 and 2 are done: chat, mood check-ins, telemetry flywheel, PWA, and the full orchestration
-substrate (missions, agents, tools, permissions, approvals, budgets, crash recovery).
-**150 tests, passing on SQLite and Postgres 16.**
+Phases 1–2.6 and Phase 3 **core** are done: chat, mood, telemetry flywheel, PWA, orchestration
+substrate (missions, agents, tools, permissions, approvals, budgets, crash recovery), hybrid memory,
+and the node protocol + PC agent (`fs.*`, `shell.exec`, `system.stats`).
+**176 tests, passing on SQLite and Postgres 16.**
 
-**Next: Phase 3** — node protocol and the PC node agent, running on the host laptop.
+**Next:** Horizon A in [`docs/RESTART-PLAN.md`](docs/RESTART-PLAN.md) — Telegram chat + approvals,
+Ollama in `EngineRouter`, mail tools, and a skills layer. Phase 3 leftovers (screenshot, AT-SPI,
+PWA Files/System panels, Ansible) ride Horizon B.
 
 ### The fleet (decided)
 

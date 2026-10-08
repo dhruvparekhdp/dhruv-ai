@@ -42,36 +42,37 @@ Verified against the tree and `pytest` on 2026-10-08: **176 tests passing**
 | Tools | Capability + risk + approval gate | `app/tools/` |
 | Memory | Hybrid vector+BM25, provenance, PWA panel | `app/memory/` |
 | Nodes | `/ws/node`, enrolment, capability placement, PC agent | `app/nodes/`, `nodes/pc/` |
-| Node tools | `fs.*`, `shell.exec`, `system.stats` (jailed) | `app/tools/node/`, `nodes/pc/agent.py` |
+| Node tools | `fs.list/read/write/delete`, `shell.exec`, `system.stats` (jailed) | `app/tools/node/`, `nodes/pc/agent.py` |
 | Telemetry flywheel | Trajectories → ShareGPT JSONL export | `app/core/telemetry.py` |
 | Todos + MCP | WIP-limited tracks, Claude MCP bridge | `app/todos/`, `mcp_server.py` |
 | PWA | Chat, mood, missions, approvals, memory, logs | `app/static/` |
 
 Agents shipped: `planner`, `research`, `memory`, `assistant`, `operator`.
 
+`system.stats` today is disk/load/RAM/cores only — no temperature or process list. `fs.move` is
+documented in older roadmap text but not registered.
+
 ### Claimed or half-built — do not treat as done
 
 | Item | Reality |
 |---|---|
-| Phase 3 "done" in ROADMAP | **Protocol + PC agent done.** AT-SPI, ydotool, screenshot tool, Files/System/Terminal panels, Ansible playbook — **not in repo**. |
-| Telegram "bot already exists" | Only `app/todos/reminders.py` outbound `sendMessage`. No inbound chat, no inline approval keyboards. |
-| Phase 2.5 (devices, Telegram, fleet heatmap) | Marked "next"; **no implementation**. |
-| Ollama / offline brain | Node *advertises* `INFERENCE` if `ollama` is on PATH. **`EngineRouter` has no Ollama engine** — only Groq, Gemini, echo. |
+| Phase 3 "done" | **Protocol + PC agent done.** AT-SPI, ydotool, screenshot, Files/System/Terminal/Fleet panels, Ansible, committed `.service` files — **not in repo**. |
+| Telegram "bot already exists" | Outbound `sendMessage` for todo reminders only. Sweep is **manual** (`POST …/reminders/sweep`); no inbound chat, no inline approvals. |
+| Phase 2.5 (devices, Telegram, fleet heatmap) | Marked "next"; **no `/api/v1/devices/checkin`, no heatmap UI**. |
+| Ollama / offline brain | Node *advertises* `INFERENCE` if `ollama` is on PATH. **`EngineRouter` has no Ollama engine** — only Groq, Gemini, echo. Docs that say "the slot already exists" are wrong. |
+| Chat intents beyond personal | Router *classifies* `OS_AUTOMATION` / `CODING_AGENT` / `QUANT_TRADING`, but `is_supported()` accepts **only** `PERSONAL_CHAT`. Missions + `operator` are the real path for laptop work today. |
 | Desktop control | `DESKTOP` capability is declared; no screenshot / AT-SPI / input tools. |
 | Email / calendar | Absent. |
 | Runtime tool / skill creation | Absent. Tools are `@tool` at develop time; agents are YAML. |
-| Voice | Phase 6 on paper only. |
-| Android companion | Phase 4 on paper only. |
+| Todos / fleet in PWA | APIs exist; **no PWA sections** for either. |
+| Voice / Android / trading | Paper only. |
 | Personal LLM training loop | Export exists; no train/serve pipeline wired. |
 
 ### Doc debt that will confuse restarts
 
-- `ROADMAP.md` marks Phase 3 ✅ then repeats an older Phase 3 block; Phase 8
-  "Trading" body duplicates Phase 6 voice/Ollama text.
-- `README.md` roadmap table contradicts itself (Phase 3 both done and empty).
-- Test count and "Telegram bot exists" language are stale.
-
-Fix the docs as you restart — stale status is how projects stay on hold.
+Most ROADMAP/README contradictions were cleaned in the same change set as this file. Remaining
+watch-outs: ARCHITECTURE diagrams still name `screenshot` / `android.tap` as if registered;
+`CLAUDE.md` / SETUP-HOST status must stay aligned with Horizon A/B (see those edits).
 
 ---
 

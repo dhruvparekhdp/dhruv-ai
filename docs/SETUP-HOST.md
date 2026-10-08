@@ -260,11 +260,13 @@ All of this is also clickable in Cockpit under **Services** and **Logs**.
 
 ---
 
-## Coming in Phase 3
+## Still open (Horizon B)
 
-An **Ansible playbook** that performs steps 3–8 in one command, so a new machine — the gaming laptop,
-a mini PC, a Pi — becomes a Jarvis node without following this document again. And Jarvis's own
-**Files / System / Terminal panels**, so the terminal becomes optional rather than occasional.
+Phase 3 **core** (node protocol + PC agent) is already in the repo. Still to land:
 
-XFCE and Cockpit stay regardless: you cannot use Jarvis to fix Jarvis, so there must always be a way
-in that does not depend on it.
+- An **Ansible playbook** that performs steps 3–8 in one command, so a new machine becomes a Jarvis
+  node without following this document again
+- Jarvis's own **Files / System / Terminal / Fleet panels**, so the terminal becomes optional
+
+See [`RESTART-PLAN.md`](RESTART-PLAN.md). XFCE and Cockpit stay regardless: you cannot use Jarvis to
+fix Jarvis, so there must always be a way in that does not depend on it.
