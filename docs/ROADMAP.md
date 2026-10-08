@@ -3,6 +3,10 @@
 Each phase is independently valuable and testable. Phases are ordered so that nothing waits on
 hardware that has not arrived.
 
+**Returning after a hold?** Start with [`RESTART-PLAN.md`](RESTART-PLAN.md) — it reconciles this
+roadmap against what the repo actually contains, and re-aims the next work toward a living
+assistant (Telegram, Ollama, mail, skills) before later packaging phases.
+
 ---
 
 ## ✅ Phase 1 — Foundation
@@ -59,43 +63,19 @@ Deliberately parallel with Phase 3; needs no new hardware.
 ---
 
 
-## ✅ Phase 3 — Node protocol + first nodes
+## ✅ Phase 3 — Node protocol + PC agent (core)
 
-Turn the fleet into something real, with the count left open from the start.
+**Done in-repo:** `/ws/node` gateway, enrolment, capability-based placement (D-023), node-tool
+dispatch for `requires_node`, reconnect/backoff, PC agent with jailed `fs.*`, allowlisted
+`shell.exec`, and `system.stats`. Tests cover the protocol end-to-end.
 
-**Node protocol**
-- `/ws/node` gateway: enrolment tokens, node sessions, heartbeat, lease renewal
-- **capability-based registry** (D-023) — nodes advertise `ram_mb`, `cores`, `capabilities`,
-  `untrusted_ok`; the scheduler places work against those, never against hardcoded IPs
-- node-tool dispatch: a tool marked `requires_node` routes to a node instead of running in-process
-- reconnect with backoff, reporting current task so the orchestrator reconciles rather than duplicates
-- offline node → its leases lapse → work reschedules automatically
+**Still open (do not treat as shipped):**
+- `screenshot`; desktop control via AT-SPI + ydotool / `/dev/uinput`
+- PWA Files / System / Fleet / Terminal panels
+- Ansible host provisioning playbook (ISO later consumes it)
+- `fs.move` as a first-class tool
 
-**PC node agent** (`nodes/pc/`)
-- `shell.exec` — allowlisted; `DANGEROUS` outside the allowlist
-- `fs.list` / `fs.read` / `fs.write` / `fs.move` — jailed to configured roots
-- `fs.delete` — `DANGEROUS`, always approval-gated
-- `screenshot`, `system.stats` (CPU, RAM, disk, temperature, processes)
-- `systemd` unit with restart-on-failure
-
-**Desktop control via AT-SPI + ydotool** (from the updated plan)
-- read the accessibility tree for *semantic* control — "click the button labelled Save" — instead of
-  guessing pixels
-- `ydotool` / `/dev/uinput` for real keystroke and click injection, which works under Wayland where
-  X11-era tools do not
-- caveat: AT-SPI is more mature on X11; `/dev/uinput` needs a udev rule
-
-**System GUI in the PWA** — so the machine is operable without the terminal
-- **Files panel** — browse, upload, download, rename, move, delete (deletes go through approval)
-- **System panel** — CPU / RAM / disk / temperature, processes, service health, per node
-- **Fleet panel** — every node, its capabilities, health, current task
-- **Terminal panel** — for when a command is wanted, not required
-
-**Host provisioning** — Ansible playbook: packages, users, firewall, `chrony` (D-025), Tailscale,
-Postgres, node service, hardening. Reproducible, so a new machine joins in minutes. This playbook is
-also the build recipe the ISO later consumes.
-
-See [`SETUP-HOST.md`](SETUP-HOST.md).
+See [`SETUP-HOST.md`](SETUP-HOST.md) and [`RESTART-PLAN.md`](RESTART-PLAN.md).
 
 ---
 
@@ -116,35 +96,10 @@ Once more than one machine is running, these stop being optional:
 - **Secrets across nodes** — `systemd` credentials or an age-encrypted file, not `.env` copied
   around.
 
-Turn the host laptop into the first execution node, and give Jarvis the GUI that makes the machine
-usable without a terminal.
-
-**Node protocol**
-- `/ws/node` gateway: enrolment tokens, node sessions, heartbeat, lease renewal
-- device registry with `REPORT` / `EXECUTE` capabilities and health
-- node-tool dispatch: a tool marked `requires_node` routes to a node instead of running in-process
-- reconnect with backoff, reporting current task so the orchestrator reconciles
-
-**PC node agent** (`nodes/pc/`)
-- `shell.exec` — allowlisted, `DANGEROUS` outside the allowlist
-- `fs.list` / `fs.read` / `fs.write` / `fs.move` — jailed to configured roots
-- `fs.delete` — `DANGEROUS`, always approval-gated
-- `screenshot`, `system.stats` (CPU, RAM, disk, temperature, processes)
-- runs as a `systemd` unit with restart-on-failure
-
-**System GUI in the PWA** — so the machine is operable without typing commands
-- **Files panel** — browse, upload, download, rename, move, delete (deletes route through approval)
-- **System panel** — CPU / RAM / disk / temperature, top processes, service health
-- **Terminal panel** — for when a command is wanted, not required
-
-**Host provisioning** — an Ansible playbook that turns bare Debian into a Jarvis host: packages,
-users, firewall, Tailscale, Postgres, the node service, hardening. Reproducible, so a new machine is
-a 20-minute rebuild rather than a weekend of recollection.
-
-See [`SETUP-HOST.md`](SETUP-HOST.md).
+Desktop GUI control, PWA system panels, and Ansible provisioning remain open work under Phase 3
+(see the "still open" list there) and Horizon B in [`RESTART-PLAN.md`](RESTART-PLAN.md).
 
 ---
-
 
 ## Phase 4 — Android companion
 
@@ -237,15 +192,11 @@ Everything the playbook does is reused here — nothing built earlier is wasted.
 ## Phase 8 — Trading engine
 
 Last, deliberately. Real money, so it lands only when the approval gate, kill switch, audit log and
-budget machinery have all been proven by everything above.
-
-- Whisper STT + TTS; wake word
-- Ollama with `qwen2.5:7b-instruct` as the offline fallback engine — the `EngineRouter` already has
-  the slot, and 16 GB makes it viable
-- broaden to 10–15 agents (now just YAML files)
-- scheduled background missions: morning brief, system health, backups
+budget machinery have all been proven by everything above. Voice/Ollama belong in Phase 6 — they
+are not prerequisites for trading, and trading is not a packaging step for them.
 
 ---
+
 
 ## Later / conditional
 

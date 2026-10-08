@@ -12,6 +12,7 @@ Runs on your own hardware, and works before you have any API key at all.
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the pieces fit and why the seams fall where they do |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why each choice was made — **read before changing architecture** |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | What's built, what's next |
+| [`docs/RESTART-PLAN.md`](docs/RESTART-PLAN.md) | Post-hold restart: research insights, previous vs new plan, Horizon A–C |
 | [`docs/SETUP-HOST.md`](docs/SETUP-HOST.md) | Setting up the host laptop, step by step |
 | [`docs/SETUP-NODE.md`](docs/SETUP-NODE.md) | Joining another machine to the fleet |
 | [`docs/TODOS.md`](docs/TODOS.md) | The todo module, and connecting it to Claude over MCP |
@@ -103,7 +104,7 @@ Open http://127.0.0.1:8000 and enter `dev`.
 No API key needed — Jarvis falls back to a local engine and tells you it's doing so.
 
 ```bash
-pytest -q          # 150 tests, no network, no tokens spent
+pytest -q          # 176 tests, no network, no tokens spent
 ```
 
 The same suite runs against either backend. The host runs Postgres while local development runs on
@@ -229,7 +230,7 @@ nodes/pc/      the node agent that runs on each machine
   tools/       registry · cloud/{memory,web}               (capability + risk)
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
-tests/         150 tests, all offline
+tests/         176 tests, all offline
 ```
 
 **Why one runner instead of a class per agent:** the roadmap calls for ~20 specialists. Twenty
@@ -261,12 +262,13 @@ cycles is a contained change.
 | 1 | FastAPI core, telemetry flywheel, mood check-in, PWA | **done** |
 | 2 | Missions, agents, tools, permissions, approvals, durability | **done** |
 | 2.6 | Memory search: hybrid retrieval, provenance, Memory panel | **done** |
-| 3 | Node protocol, capability registry, PC node agent | **done** |
-| 2.5 | Device registry, iPhone telemetry via Shortcuts, Telegram gateway | next |
-| 3 | Node protocol + PC node (shell, files, screenshots) | |
+| 3 | Node protocol, capability registry, PC node (`fs.*`, shell, stats) | **core done** |
+| 2.5 | Device registry, iPhone telemetry via Shortcuts, Telegram gateway | **next** (see restart plan) |
+| 3.x | Screenshots, AT-SPI/ydotool, Files/System panels, Ansible | open |
 | 4 | Android companion app (AccessibilityService) | |
 | 5 | Vision-verified device automation | |
-| 6 | Voice, more agents, fine-tuning pipeline | |
+| 6 | Voice, Ollama engine, scheduled briefs | |
+| — | Horizon A restart (Telegram + Ollama + mail + skills) | [`RESTART-PLAN.md`](docs/RESTART-PLAN.md) |
 
 **Devices dial out, never in.** A cloud host cannot reach a phone behind NAT, so every node opens an
 outbound WebSocket and holds it. That also makes the laptop just the largest node rather than a
