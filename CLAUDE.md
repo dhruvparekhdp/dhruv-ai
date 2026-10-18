@@ -130,11 +130,16 @@ drills/                    debugging drills: planted bugs + a runner (see drills
 
 ## Current state
 
-Phases 1 and 2 are done: chat, mood check-ins, telemetry flywheel, PWA, and the full orchestration
-substrate (missions, agents, tools, permissions, approvals, budgets, crash recovery).
-**150 tests, passing on SQLite and Postgres 16.**
+Done: chat, mood check-ins, telemetry flywheel, PWA, the full orchestration substrate (missions,
+agents, tools, permissions, approvals, budgets, crash recovery), hybrid memory, the node protocol and
+PC agent (`fs.*`, `shell.exec`, `system.stats` — no screenshot or desktop control), and todos with an
+MCP bridge. **176 tests, passing on SQLite and Postgres 16.**
 
-**Next: Phase 3** — node protocol and the PC node agent, running on the host laptop.
+Telegram is outbound only (todo reminders), and nothing calls the reminder sweep yet.
+
+**Next: [`docs/PLAN.md`](docs/PLAN.md)** — host baseline, then a Telegram channel, approvals on
+Telegram, a durable schedule with watchers, the todos PWA screen, and LLM budgets. Jarvis's job is
+control plane for the owner's other systems (D-028), not a host for them.
 
 ### The fleet (decided)
 
@@ -142,8 +147,8 @@ substrate (missions, agents, tools, permissions, approvals, budgets, crash recov
 
 | Machine | Role today | Desktop |
 |---|---|---|
-| i5 / 16 GB | master: orchestrator, Postgres, memory, PWA | XFCE (D-018) |
-| i3 / 12 GB | inference: Ollama 7B fallback, Whisper, TTS | headless |
+| i5 / 16 GB | master: orchestrator, SQLite, memory, PWA | headless + Cockpit (D-026) |
+| i3 / 12 GB | worker | headless |
 | i5 / 8 GB | sandbox: untrusted code, browser automation | headless |
 
 Roles are **not** in code. Each node advertises `capabilities` and the scheduler places work against
@@ -155,8 +160,8 @@ them (D-023), so adding, removing or repurposing a machine is a one-line change 
 iPhone / any browser
    │  HTTPS via Tailscale Funnel (free, stable *.ts.net, no domain, no card)
    ▼
-Host laptop — Debian 13 + XFCE, i5-1235U, 16 GB
-   Jarvis orchestrator + PC node + (later) Ollama local fallback
+Host laptop `dhruv-ai` — Debian 13, headless, i5-1235U, 16 GB
+   Jarvis orchestrator + PC node + SQLite (D-027)
 ```
 
 Cloud inference (Groq, Gemini) still happens over the internet; only *hosting* is local.

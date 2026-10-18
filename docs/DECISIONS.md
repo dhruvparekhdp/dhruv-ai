@@ -14,6 +14,8 @@ recommended replacement. Overridable via `GROQ_MODEL`; do not set it back.
 
 ## D-002 · Storage is dual-dialect (SQLite + Postgres)
 
+*The dual dialect stands. "Postgres in production" is superseded by D-027.*
+
 Postgres in production, SQLite for local development and tests — so tests need no database server and
 run offline. Every query goes through `app/core/db.py`, where `q()` rewrites `?` → `%s` and
 `ddl_types()` swaps the divergent type names.
@@ -206,6 +208,8 @@ messages once a mission completes.
 
 ## D-018 · Debian 13 with XFCE, not headless
 
+*Superseded by D-026. The "never the only way in" half of the reasoning still holds.*
+
 Headless would save ~1.5 GB of RAM on a 16 GB machine — the wrong thing to optimise. The owner has
 not operated a Linux box without a GUI and would be unable to do basic file management.
 
@@ -354,3 +358,50 @@ lease that has not actually lapsed, and duplicate work.
 
 `chrony` on every node, installed by the provisioning playbook. Cheap insurance against a whole
 class of distributed-systems bug.
+
+---
+
+## D-026 · The host is headless; Cockpit is the way in
+
+Supersedes D-018. The host was installed with no desktop environment: the owner is comfortable over
+SSH, and a server's desktop is RAM and attack surface that nobody looks at.
+
+D-018 had two arguments, and only one was about GUI comfort. The other survives: you cannot use
+Jarvis to fix Jarvis, so a 2 a.m. crash needs a way in that does not depend on the thing that
+crashed. **Cockpit** (web admin on port 9090: files, terminal, logs, services) is that way in, at
+about 50 MB instead of a desktop's 1.5 GB. It is installed in host setup step one, before Jarvis.
+
+---
+
+## D-027 · SQLite on the host; Postgres stays supported, not default
+
+Supersedes "Postgres in production" in D-002. The Postgres default existed because Render's
+filesystem was ephemeral — a SQLite file would vanish on every deploy. The host is a laptop with a
+persistent disk and Jarvis has a single writer, which is SQLite's best case.
+
+The dual-dialect code and the Postgres test run stay. They cost little, they have caught four real
+bugs, and they keep the option open if a second writer ever appears.
+
+---
+
+## D-028 · Jarvis's job is control plane, not product host
+
+Jarvis watches and steers the owner's other systems; it does not run them. The crypto engine keeps
+its own risk machinery and host; the shop stays on Netlify and Supabase. Jarvis checks their health
+over HTTP, alerts on change, and can do bounded chores under approval.
+
+Why: a trading engine or a shop that depends on a laptop at home inherits that laptop's power cuts.
+The arrow points one way — Jarvis depends on them being observable, never the reverse. Shared ideas
+(the crypto engine's per-model LLM budgets) are ported as code, not called at runtime.
+
+---
+
+## D-029 · Jarvis gets its own Telegram bot, long-polled
+
+Telegram allows one `getUpdates` consumer per bot token; two programs polling the same token take
+each other's messages at random. The crypto engine's bot is outbound-only today, but sharing it
+would make "Jarvis didn't answer" a race. A second bot costs nothing.
+
+Long-polling dials out, so it keeps D-014 (nothing dials in) and works with or without Funnel. Only
+the owner's chat ID is answered — on Telegram there is no passcode header, so that check *is* the
+gate, and it lives in the channel, not in each command.

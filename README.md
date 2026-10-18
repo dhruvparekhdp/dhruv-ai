@@ -103,11 +103,11 @@ Open http://127.0.0.1:8000 and enter `dev`.
 No API key needed — Jarvis falls back to a local engine and tells you it's doing so.
 
 ```bash
-pytest -q          # 150 tests, no network, no tokens spent
+pytest -q          # 176 tests, no network, no tokens spent
 ```
 
-The same suite runs against either backend. The host runs Postgres while local development runs on
-SQLite, so both are tested:
+The same suite runs against either backend. The host runs SQLite (D-027); Postgres stays supported
+and tested:
 
 ```bash
 pytest -q                                              # SQLite (default)
@@ -125,8 +125,8 @@ stable public HTTPS hostname with a valid certificate, no domain purchase.
 iPhone / any browser
    │  HTTPS · https://<machine>.<tailnet>.ts.net
    ▼
-Host laptop — Debian 13 + XFCE · i5-1235U · 16 GB
-   Jarvis orchestrator + PC node + local Postgres + (later) Ollama
+Host laptop — Debian 13, headless · i5-1235U · 16 GB
+   Jarvis orchestrator + PC node + SQLite
         │
         └── cloud inference: Groq (fast) · Gemini (deep)
 ```
@@ -229,7 +229,7 @@ nodes/pc/      the node agent that runs on each machine
   tools/       registry · cloud/{memory,web}               (capability + risk)
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
-tests/         150 tests, all offline
+tests/         176 tests, all offline
 ```
 
 **Why one runner instead of a class per agent:** the roadmap calls for ~20 specialists. Twenty

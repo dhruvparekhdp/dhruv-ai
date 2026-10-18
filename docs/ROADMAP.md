@@ -3,6 +3,10 @@
 Each phase is independently valuable and testable. Phases are ordered so that nothing waits on
 hardware that has not arrived.
 
+**This is the long list, not the current order.** What to build next is in [`PLAN.md`](PLAN.md).
+Phase 3 shipped its core only — the node protocol and PC agent. Screenshot, desktop control, the
+PWA Files/System panels and the Ansible playbook did not ship, and the host is now headless (D-026).
+
 ---
 
 ## ✅ Phase 1 — Foundation
