@@ -405,3 +405,28 @@ would make "Jarvis didn't answer" a race. A second bot costs nothing.
 Long-polling dials out, so it keeps D-014 (nothing dials in) and works with or without Funnel. Only
 the owner's chat ID is answered — on Telegram there is no passcode header, so that check *is* the
 gate, and it lives in the channel, not in each command.
+
+---
+
+## D-030 · A native iOS app, as a client and a reporting device
+
+Revises the earlier "todos UI in the PWA only, native iOS parked" call. The PWA can't be reached by
+Siri, can't run from a Shortcuts automation, can't use Face ID, and can't read the phone's own
+state. Those are exactly the parts of *Reach* and *Attunement* (VISION.md) a phone is for.
+
+What it is, and what it isn't:
+
+- **A thin client.** Every rule — two active tracks, one next item, the approval gate, memory —
+  stays server-side, tested once. The app never re-implements one.
+- **A reporting device, not a node** (D-013). It can't hold a socket or execute; it reports in short
+  bursts to `/api/v1/devices/checkin`, a separate module from `app/nodes/`.
+- **Free Personal Team, no extensions.** Three free-signed apps fit on the phone and extensions
+  count, so Siri and Shortcuts go through App Intents in the app target.
+- **Shortcuts automations are the background mechanism.** A free-team app can't schedule itself;
+  automations trigger on arriving, leaving, charging, Focus — events the app could never observe —
+  and give location context without the app holding a location permission.
+- **Approve always asks for Face ID; deny never does.** Saying no must never be harder than yes.
+- **Telegram stays the push channel.** Remote push needs the paid program.
+
+New data sources arrive one permission at a time (the access ladder in `ios/README.md`), each with
+a stated reason, never as a bundle.

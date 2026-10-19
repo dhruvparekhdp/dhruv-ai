@@ -45,9 +45,9 @@ emotions it doesn't have is lying to you, and the lie ends up in the training da
 |---|---|---|
 | Continuity | memory store with provenance, hybrid search, telemetry of every turn | memory written *automatically* from conversations; a diary that consolidates days into weeks |
 | Character | — | a persona file: who you are, how Jarvis speaks, what it never does |
-| Attunement | mood check-ins with a trend | mood used *in* replies; noticing mood from how you write |
+| Attunement | mood check-ins with a trend; phone state from automations (battery, arriving, sleep Focus) | mood and phone state used *in* replies; Health data (sleep, steps); noticing mood from how you write |
 | Initiative | todo reminders (not yet scheduled) | the schedule; watchers; a daily brief |
-| Reach | PWA, MCP for Claude | **Telegram inbound** (started), then voice |
+| Reach | PWA, MCP for Claude, Telegram inbound, native iOS app with Siri and Shortcuts | voice; push to the app (paid Apple account) |
 | Hands | missions, agents, permissioned tools, node fleet, approvals | approvals on the phone; mail, calendar; more machines |
 | Growth | trajectories + thumbs, ShareGPT export | skills from repeated missions; a LoRA trained on your data |
 

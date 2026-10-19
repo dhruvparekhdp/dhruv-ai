@@ -49,9 +49,13 @@ silently returning worse results.
 
 ---
 
-## ▶ Phase 2.5 — Device registry, iPhone telemetry, Telegram ← next
+## ▶ Phase 2.5 — Device registry, iPhone telemetry, Telegram ← in progress
 
 Deliberately parallel with Phase 3; needs no new hardware.
+
+**Done:** `/api/v1/devices/checkin` (plus list, history, wipe), fed by the native iOS app and its
+*Report to Jarvis* Shortcuts action (D-030); Telegram inbound — commands and chat, owner-only.
+**Open:** approval buttons on Telegram, the fleet heatmap panel, voice messages.
 
 - `/api/v1/devices/checkin` for an **iOS Shortcuts** automation (battery, device, network, on Wi-Fi
   connect) — the only way to get iPhone telemetry without a Mac or jailbreak

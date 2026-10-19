@@ -3,7 +3,10 @@
 The current plan. Supersedes the phase ordering in [`ROADMAP.md`](ROADMAP.md) where they disagree;
 the roadmap stays as the long list of what Jarvis could become.
 
-Verified against the repo on 18 Oct 2026: `main` at `8ba215e`, **176 tests passing**.
+Written 18 Oct 2026 against `main` at `8ba215e` (176 tests). Status updated 19 Oct: P1 built,
+iOS client written (P1b), **213 tests passing** on SQLite and Postgres 16.
+
+The long-term direction is [`VISION.md`](VISION.md). This file is the next few weeks of it.
 
 ---
 
@@ -154,12 +157,29 @@ Done from the host's shell. Detailed steps: [`SETUP-HOST.md`](SETUP-HOST.md).
 **Done when:** `sudo reboot`, and two minutes later a due todo arrives on Telegram without you
 touching anything.
 
-### P1 — Telegram channel (two evenings)
+### P1 — Telegram channel ✅ built, awaiting the on-phone check
 
-`app/channels/telegram.py`: long-poll loop, chat-ID gate, the four commands, free-text chat.
+`app/channels/telegram.py`: long-poll loop, chat-ID gate, `/next` `/add` `/done` `/tracks` `/help`,
+free-text chat in one persistent session. At-most-once delivery: the cursor is recorded before each
+update is handled. 23 tests, including the two that matter — a stranger changes nothing, and a
+restart never replays an `/add`.
+
+To switch it on: create a **new** bot in BotFather (D-029), and set `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_CHAT_ID` in the host's `.env`. Polling starts with the server.
 
 **Done when:** from your phone, `/next` returns one item, `/add jarvis test` creates one, `/done`
 closes it — and a message from any other account gets no reply.
+
+### P1b — Native iOS app ✅ written, needs its first Mac build
+
+`ios/` — added on request, 19 Oct (D-030). Today, chat, todos, approvals with Face ID, settings;
+five Siri/Shortcuts intents; *Report to Jarvis* for automations. Server side:
+`/api/v1/devices/checkin` with list, history and wipe; `tests/test_ios_contract.py` pins every
+payload the app sends and every field it reads.
+
+**Done when:** it installs on the iPhone (mind the three-app limit — `ios/README.md`), "Hey Siri,
+what's next in Jarvis" answers, and an "arrive at office" automation leaves a report in
+`GET /api/v1/devices`.
 
 ### P2 — Approvals on Telegram (one evening)
 
@@ -176,12 +196,12 @@ health and LLM budget, dhruvparekh.in, the Saloni shop, and host disk.
 **Done when:** stop the crypto engine's service; one alert arrives. Start it; one recovery message.
 No repeats in between.
 
-### P4 — Todos in the PWA (two evenings)
+### P4 — Todos in the PWA (two evenings) — lower priority now
 
-The screen from the earlier prompt: `/next` front and centre, list grouped by track, parked tracks
-demoted, quick add. Telegram covers the push; this covers looking at the whole list.
+The iOS app's Todos tab covers the phone. This is now only for a laptop browser, and can wait until
+one is actually missed.
 
-**Done when:** it works from the iPhone home screen over the Funnel URL.
+**Done when:** it works from a laptop browser over the Funnel URL.
 
 ### P5 — LLM budgets (one evening)
 
@@ -200,10 +220,10 @@ worker nodes, episodic memory.
 
 ## 5 · Order versus your list
 
-Your list had the todos PWA before any channel work. This plan puts Telegram first. Reason: the PWA
-on iOS cannot push without a web-push setup, so a PWA-only todo list is a list you have to remember
-to open — which is the exact failure the todo system exists to prevent. Telegram already has your
-phone's attention. Overrule this if you disagree; P4 does not depend on P1–P3.
+Your list had the todos PWA before any channel work. This plan put Telegram first, because a todo
+list that can't push is a list you have to remember to open. The native app (P1b) replaced the PWA
+screen for the phone; Telegram is still the push channel, because the free Apple team can't receive
+remote push.
 
 MCP wiring (your item 6) is a one-line `claude mcp add` once P0 gives the API a stable URL. It is in
 P0, not a phase.
@@ -217,10 +237,11 @@ P0, not a phase.
    research, and Groq's daily limit has been hit in anger. A 7B model is a better last resort than
    the echo engine, which can only say "no engine available". Cost: one engine class and ~5 GB of
    disk. Your call — the plan works either way.
-2. **Which two tracks are active?** See §1. If GiftHat is going for 23 Nov, it needs one slot for
-   five weeks, and per its own timeline it is already behind (Phase 1A was due 17–21 Oct). That
-   leaves one slot for everything else.
+2. ~~Which two tracks are active?~~ Resolved 19 Oct: GiftHat runs in its own conversation and is
+   nearly done; this plan is Jarvis only.
 3. **Mail provider** — Gmail, or something else? Only matters after P5.
+4. **Three-app limit on the iPhone** — remove Orbit's widget or another app, or pay for the
+   developer program? Blocks P1b's install, not its code. See `ios/README.md`.
 
 ---
 

@@ -98,6 +98,8 @@ app/
     store.py               scoped entries with provenance
     embeddings.py          local ONNX embeddings, optional at runtime
     search.py              hybrid retrieval: vector + BM25, fused
+  channels/telegram.py     inbound Telegram: owner-only, long-polled, at-most-once
+  devices/store.py         phone check-ins (report-only; not nodes — D-013, D-030)
   nodes/                   the fleet
     models.py              Node, capabilities, statuses
     store.py               durable registry; secrets stored hashed
@@ -109,7 +111,8 @@ app/
 nodes/pc/agent.py          the agent that runs on each machine
   services/websocket_manager.py
   static/                  vanilla PWA, no build step
-docs/                      ARCHITECTURE, DECISIONS, ROADMAP, SETUP-HOST, SETUP-NODE
+ios/                       native iPhone client — see ios/README.md (built on a Mac, not here)
+docs/                      VISION, PLAN, ARCHITECTURE, DECISIONS, ROADMAP, SETUP-HOST, SETUP-NODE
 drills/                    debugging drills: planted bugs + a runner (see drills/README.md)
 ```
 
@@ -133,9 +136,10 @@ drills/                    debugging drills: planted bugs + a runner (see drills
 Done: chat, mood check-ins, telemetry flywheel, PWA, the full orchestration substrate (missions,
 agents, tools, permissions, approvals, budgets, crash recovery), hybrid memory, the node protocol and
 PC agent (`fs.*`, `shell.exec`, `system.stats` — no screenshot or desktop control), and todos with an
-MCP bridge. **176 tests, passing on SQLite and Postgres 16.**
+MCP bridge, Telegram inbound (commands + chat, owner-only), device check-ins, and a native iOS
+client (`ios/`, not yet build-verified). **213 tests, passing on SQLite and Postgres 16.**
 
-Telegram is outbound only (todo reminders), and nothing calls the reminder sweep yet.
+Nothing calls the reminder sweep on a schedule yet, and approvals are not on Telegram yet.
 
 **Next: [`docs/PLAN.md`](docs/PLAN.md)** — host baseline, then a Telegram channel, approvals on
 Telegram, a durable schedule with watchers, the todos PWA screen, and LLM budgets. Jarvis's job is

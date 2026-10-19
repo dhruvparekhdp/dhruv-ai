@@ -103,7 +103,7 @@ Open http://127.0.0.1:8000 and enter `dev`.
 No API key needed — Jarvis falls back to a local engine and tells you it's doing so.
 
 ```bash
-pytest -q          # 176 tests, no network, no tokens spent
+pytest -q          # 213 tests, no network, no tokens spent
 ```
 
 The same suite runs against either backend. The host runs SQLite (D-027); Postgres stays supported
@@ -229,7 +229,7 @@ nodes/pc/      the node agent that runs on each machine
   tools/       registry · cloud/{memory,web}               (capability + risk)
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
-tests/         176 tests, all offline
+tests/         213 tests, all offline
 ```
 
 **Why one runner instead of a class per agent:** the roadmap calls for ~20 specialists. Twenty
