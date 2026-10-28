@@ -11,8 +11,10 @@ Runs on your own hardware, and works before you have any API key at all.
 | [`CLAUDE.md`](CLAUDE.md) | Project context and the invariants that must not be broken |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the pieces fit and why the seams fall where they do |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why each choice was made — **read before changing architecture** |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | What's built, what's next |
-| [`docs/RESTART-PLAN.md`](docs/RESTART-PLAN.md) | Post-hold restart: research insights, previous vs new plan, Horizon A–C |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | What's built, what's next (long list) |
+| [`docs/PLAN.md`](docs/PLAN.md) | **Current build order** — what to ship next |
+| [`docs/VISION.md`](docs/VISION.md) | Long-term direction: what makes an assistant feel like someone |
+| [`docs/RESTART-PLAN.md`](docs/RESTART-PLAN.md) | Post-hold restart: research insights, Horizon A–C, personal LLM path |
 | [`docs/SETUP-HOST.md`](docs/SETUP-HOST.md) | Setting up the host laptop, step by step |
 | [`docs/SETUP-NODE.md`](docs/SETUP-NODE.md) | Joining another machine to the fleet |
 | [`docs/TODOS.md`](docs/TODOS.md) | The todo module, and connecting it to Claude over MCP |
@@ -59,8 +61,9 @@ Runs on your own hardware, and works before you have any API key at all.
 - **`next` returns one item**, never a list, and prefers work already started over starting
   something new. Finishing beats starting.
 - **MCP server** — Claude gets `todo_next`, `track_summary`, add, list, update and track control.
-- **Telegram reminders**, swept on a timer; unconfigured means nothing is sent *and* nothing is
-  marked as reminded.
+- **Telegram** — inbound commands and chat (owner-only); outbound todo reminders (sweep still manual).
+- **Device check-ins** — `/api/v1/devices/checkin` from the native iOS app and Shortcuts.
+- **iOS client** — SwiftUI app in `ios/` (Siri, Shortcuts, approvals UI; build not CI-verified yet).
 
 **Assistant**
 - **Chat** and **mood check-ins** with a 14-day trend strip.
@@ -104,11 +107,11 @@ Open http://127.0.0.1:8000 and enter `dev`.
 No API key needed — Jarvis falls back to a local engine and tells you it's doing so.
 
 ```bash
-pytest -q          # 176 tests, no network, no tokens spent
+pytest -q          # 213 tests, no network, no tokens spent
 ```
 
-The same suite runs against either backend. The host runs Postgres while local development runs on
-SQLite, so both are tested:
+The same suite runs against either backend. The host runs SQLite (D-027); Postgres stays supported
+and tested:
 
 ```bash
 pytest -q                                              # SQLite (default)
@@ -126,8 +129,8 @@ stable public HTTPS hostname with a valid certificate, no domain purchase.
 iPhone / any browser
    │  HTTPS · https://<machine>.<tailnet>.ts.net
    ▼
-Host laptop — Debian 13 + XFCE · i5-1235U · 16 GB
-   Jarvis orchestrator + PC node + local Postgres + (later) Ollama
+Host laptop — Debian 13, headless · i5-1235U · 16 GB
+   Jarvis orchestrator + PC node + SQLite
         │
         └── cloud inference: Groq (fast) · Gemini (deep)
 ```
@@ -230,7 +233,7 @@ nodes/pc/      the node agent that runs on each machine
   tools/       registry · cloud/{memory,web}               (capability + risk)
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
-tests/         176 tests, all offline
+tests/         213 tests, all offline
 ```
 
 **Why one runner instead of a class per agent:** the roadmap calls for ~20 specialists. Twenty
@@ -263,7 +266,7 @@ cycles is a contained change.
 | 2 | Missions, agents, tools, permissions, approvals, durability | **done** |
 | 2.6 | Memory search: hybrid retrieval, provenance, Memory panel | **done** |
 | 3 | Node protocol, capability registry, PC node (`fs.*`, shell, stats) | **core done** |
-| 2.5 | Device registry, iPhone telemetry via Shortcuts, Telegram gateway | **next** (see restart plan) |
+| 2.5 | Device check-ins, Telegram inbound, iOS client | **in progress** ([`PLAN.md`](docs/PLAN.md)) |
 | 3.x | Screenshots, AT-SPI/ydotool, Files/System panels, Ansible | open |
 | 4 | Android companion app (AccessibilityService) | |
 | 5 | Vision-verified device automation | |

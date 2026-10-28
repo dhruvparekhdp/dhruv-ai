@@ -1,0 +1,11 @@
+# XcodeGen output — regenerate with `xcodegen`
+Jarvis.xcodeproj/
+Jarvis/Info.plist
+
+build/
+DerivedData/
+*.xcuserstate
+*.ipa
+*.dSYM
+*.dSYM.zip
+.DS_Store

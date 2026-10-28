@@ -1,4 +1,9 @@
-# Host setup — Debian 13 + XFCE
+# Host setup — Debian 13
+
+> **The host is headless now (D-026).** Skip the XFCE choices below: in Software selection, check
+> only *SSH server* and *standard system utilities*. Install Cockpit (step 6) first, before Jarvis —
+> it is the way in when Jarvis is the thing that's broken. Skip `postgresql` and `DATABASE_URL`;
+> the host runs SQLite (D-027). Ignore the XFCE Power Manager line in step 4.
 
 Turning the dedicated laptop (i5-1235U, 16 GB, 477 GB) into the Jarvis host.
 

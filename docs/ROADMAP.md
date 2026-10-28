@@ -3,9 +3,10 @@
 Each phase is independently valuable and testable. Phases are ordered so that nothing waits on
 hardware that has not arrived.
 
-**Returning after a hold?** Start with [`RESTART-PLAN.md`](RESTART-PLAN.md) — it reconciles this
-roadmap against what the repo actually contains, and re-aims the next work toward a living
-assistant (Telegram, Ollama, mail, skills) before later packaging phases.
+**This is the long list, not the current order.** What to build next is [`PLAN.md`](PLAN.md).
+Returning after a hold? [`RESTART-PLAN.md`](RESTART-PLAN.md) adds research, Horizon A–C, and the
+personal-LLM path. Phase 3 shipped its core only; screenshot, desktop control, PWA system panels,
+and Ansible remain open (host baseline: D-026).
 
 ---
 
@@ -49,9 +50,13 @@ silently returning worse results.
 
 ---
 
-## ▶ Phase 2.5 — Device registry, iPhone telemetry, Telegram ← next
+## ▶ Phase 2.5 — Device registry, iPhone telemetry, Telegram ← in progress
 
 Deliberately parallel with Phase 3; needs no new hardware.
+
+**Done:** `/api/v1/devices/checkin` (plus list, history, wipe), fed by the native iOS app and its
+*Report to Jarvis* Shortcuts action (D-030); Telegram inbound — commands and chat, owner-only.
+**Open:** approval buttons on Telegram, the fleet heatmap panel, voice messages.
 
 - `/api/v1/devices/checkin` for an **iOS Shortcuts** automation (battery, device, network, on Wi-Fi
   connect) — the only way to get iPhone telemetry without a Mac or jailbreak

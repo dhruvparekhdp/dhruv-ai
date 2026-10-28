@@ -29,8 +29,8 @@ skills patterns into *your* invariants.
 
 ## 2 · What the codebase actually is today
 
-Verified against the tree and `pytest` on 2026-10-08: **176 tests passing**
-(docs still say 150 — stale).
+Verified after merging Claude's presence work (Oct 2026): **213 tests passing**.
+Re-read the "half-built" table below — Phase 2.5 partial items may now be done.
 
 ### Built and solid
 
@@ -57,8 +57,8 @@ documented in older roadmap text but not registered.
 | Item | Reality |
 |---|---|
 | Phase 3 "done" | **Protocol + PC agent done.** AT-SPI, ydotool, screenshot, Files/System/Terminal/Fleet panels, Ansible, committed `.service` files — **not in repo**. |
-| Telegram "bot already exists" | Outbound `sendMessage` for todo reminders only. Sweep is **manual** (`POST …/reminders/sweep`); no inbound chat, no inline approvals. |
-| Phase 2.5 (devices, Telegram, fleet heatmap) | Marked "next"; **no `/api/v1/devices/checkin`, no heatmap UI**. |
+| Phase 2.5 (devices, Telegram, fleet heatmap) | **Partial:** `/api/v1/devices/checkin`, Telegram inbound, native `ios/` client. **Open:** fleet heatmap, inline approval buttons, voice messages. |
+| Telegram | Inbound chat/commands (owner-only) + outbound reminders. Sweep still **manual**; inline HITL on Telegram still open. |
 | Ollama / offline brain | Node *advertises* `INFERENCE` if `ollama` is on PATH. **`EngineRouter` has no Ollama engine** — only Groq, Gemini, echo. Docs that say "the slot already exists" are wrong. |
 | Chat intents beyond personal | Router *classifies* `OS_AUTOMATION` / `CODING_AGENT` / `QUANT_TRADING`, but `is_supported()` accepts **only** `PERSONAL_CHAT`. Missions + `operator` are the real path for laptop work today. |
 | Desktop control | `DESKTOP` capability is declared; no screenshot / AT-SPI / input tools. |
