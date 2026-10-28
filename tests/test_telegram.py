@@ -267,3 +267,31 @@ def test_long_replies_are_split_under_the_limit():
 def test_one_giant_line_is_still_split():
     chunks = telegram.split_message("y" * (telegram.MAX_MESSAGE * 2 + 5))
     assert [len(c) for c in chunks] == [telegram.MAX_MESSAGE, telegram.MAX_MESSAGE, 5]
+
+
+async def test_approval_callback_decides(channel_db):
+    from app.missions import store as mission_store
+    from app.missions.models import ApprovalDecision
+
+    mission_store.init_db()
+    approval_id = mission_store.create_approval(
+        mission_id="mis_test",
+        task_id="task_test",
+        agent_id="operator",
+        tool_name="fs.delete",
+        tool_arguments={"path": "/tmp/x"},
+        risk="DANGEROUS",
+    )
+    update = {
+        "update_id": 99,
+        "callback_query": {
+            "id": "cb1",
+            "data": f"appr:yes:{approval_id}",
+            "message": {"chat": {"id": int(OWNER)}},
+        },
+    }
+    chat_id, reply = await telegram.handle_update(update)
+    assert chat_id == OWNER
+    assert "Approved" in reply
+    record = mission_store.get_approval(approval_id)
+    assert record["decision"] == ApprovalDecision.APPROVED.value

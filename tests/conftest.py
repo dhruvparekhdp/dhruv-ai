@@ -35,6 +35,7 @@ _TABLES = (
     "agent_messages", "approvals", "tasks", "missions", "memory_entries",
     "nodes", "node_enrolments", "todos", "todo_tracks",
     "device_reports", "channel_state",
+    "watcher_checks", "watchers", "schedule_jobs",
 )
 
 
@@ -56,6 +57,8 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     # long-polling it and answer the owner's real chat.
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setenv("JARVIS_SCHEDULE", "0")
+    monkeypatch.setenv("JARVIS_TELEGRAM_POLL", "0")
 
     if TEST_DATABASE_URL:
         monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
@@ -110,6 +113,7 @@ def scripted_router(script: list[Any]):
     engine = ScriptedEngine(script)
     router.groq = None
     router.gemini = None
+    router.ollama = None
     router.echo = engine
     return router, engine
 

@@ -181,34 +181,32 @@ payload the app sends and every field it reads.
 what's next in Jarvis" answers, and an "arrive at office" automation leaves a report in
 `GET /api/v1/devices`.
 
-### P2 — Approvals on Telegram (one evening)
+### P2 — Approvals on Telegram ✅ built (needs on-phone check)
 
-Render parked approvals as inline buttons; callbacks post to the existing approval API.
+Inline `[Approve] [Deny]` on parked `DANGEROUS` tools; callbacks call the existing approval store
+(`app/channels/telegram.py`, scheduler notifies on park).
 
-**Done when:** a mission that calls `fs.delete` parks, the buttons arrive on your phone, Deny leaves
-the file in place, Approve removes it.
+**Done when:** a real `fs.delete` mission parks, buttons arrive on Telegram, Deny/Approve behave.
 
-### P3 — Schedule + watchers (two evenings)
+### P3 — Schedule + watchers ✅ built (configure URLs on host)
 
-The durable timer loop replaces the systemd timer. `http.check`. Watchers for the crypto engine's
-health and LLM budget, dhruvparekh.in, the Saloni shop, and host disk.
+`app/schedule/` ticks every minute; jobs `reminders` (5 min) and `watchers` (1 min). Tool
+`http.check`. Watchers seeded from `JARVIS_WATCHERS_JSON`. Alerts on state change via Telegram.
 
-**Done when:** stop the crypto engine's service; one alert arrives. Start it; one recovery message.
-No repeats in between.
+**Done when:** stop a watched service; one alert. Start it; one recovery. No spam in between.
 
-### P4 — Todos in the PWA (two evenings) — lower priority now
+### P4 — Todos in the PWA ✅ built
 
-The iOS app's Todos tab covers the phone. This is now only for a laptop browser, and can wait until
-one is actually missed.
+Todos card in the PWA: verdict, next item, capture, mark done.
 
-**Done when:** it works from a laptop browser over the Funnel URL.
+**Done when:** it works over the Funnel URL from a laptop browser.
 
-### P5 — LLM budgets (one evening)
+### P5 — LLM budgets ✅ partial
 
-The per-model budget in `EngineRouter`, from §3.4.
+Provider cooldown in `app/agent/llm_budget.py` — Groq 429 skips the provider for 60s. Full
+per-day token caps from the crypto engine pattern still optional.
 
-**Done when:** a test that exhausts a fake provider's daily budget shows the router skipping it
-*before* calling it, and resuming after the window.
+**Done when:** daily cap skips *before* call, not only after 429.
 
 ### After P5
 

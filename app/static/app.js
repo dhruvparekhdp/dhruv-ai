@@ -30,6 +30,8 @@
     memoryScopes: $("memory-scopes"), memoryMethod: $("memory-method"),
     memoryList: $("memory-list"), memoryAddForm: $("memory-add-form"),
     memoryNewKey: $("memory-new-key"), memoryNewValue: $("memory-new-value"),
+    todoVerdict: $("todo-verdict"), todoNext: $("todo-next"), todoAddForm: $("todo-add-form"),
+    todoTitle: $("todo-title"), todoList: $("todo-list"),
   };
 
   let passcode = localStorage.getItem(PASSCODE_KEY) || "";
@@ -364,6 +366,59 @@
     } catch (_) { /* approvals are best-effort */ }
   }
 
+  // --------------------------------------------------------------- todos
+  async function loadTodos() {
+    try {
+      const [summary, nextData, listData] = await Promise.all([
+        api("/api/v1/todos/summary"),
+        api("/api/v1/todos/next"),
+        api("/api/v1/todos?active_only=true"),
+      ]);
+      el.todoVerdict.textContent = summary.verdict || "";
+      if (nextData.todo) {
+        const t = nextData.todo;
+        el.todoNext.classList.remove("hidden");
+        el.todoNext.innerHTML =
+          `<strong>${escapeHtml(t.title)}</strong>` +
+          `<span class="hint"> · ${escapeHtml(t.track)} · ${escapeHtml(t.status)}</span>`;
+      } else {
+        el.todoNext.classList.add("hidden");
+      }
+      el.todoList.innerHTML = "";
+      (listData.todos || []).slice(0, 20).forEach((todo) => {
+        const row = document.createElement("div");
+        row.className = "todo-row";
+        row.innerHTML =
+          `<span>${escapeHtml(todo.title)}</span>` +
+          `<span class="hint">${escapeHtml(todo.track)}</span>` +
+          `<button type="button" class="ghost" data-done="${escapeHtml(todo.todo_id)}">Done</button>`;
+        row.querySelector("button")?.addEventListener("click", async () => {
+          await api(`/api/v1/todos/${encodeURIComponent(todo.todo_id)}`, {
+            method: "PATCH",
+            body: { status: "done" },
+          });
+          loadTodos();
+        });
+        el.todoList.appendChild(row);
+      });
+    } catch (err) {
+      pushLog("error", `Todos load failed: ${err.message}`);
+    }
+  }
+
+  el.todoAddForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const title = el.todoTitle.value.trim();
+    if (!title) return;
+    try {
+      await api("/api/v1/todos", { method: "POST", body: { title, track: "jarvis" } });
+      el.todoTitle.value = "";
+      loadTodos();
+    } catch (err) {
+      pushLog("error", err.message);
+    }
+  });
+
   // --------------------------------------------------------------- memory
 
   const SCOPES = ["all", "user", "project", "mission"];
@@ -655,6 +710,7 @@
       refreshMissions();
       renderScopeChips();
       loadMemory();
+      loadTodos();
     } catch (err) {
       if (err.unauthorized) { showLock("Session expired — enter your passcode."); return; }
       el.subtitle.textContent = `Couldn't connect: ${err.message}`;

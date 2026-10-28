@@ -30,6 +30,10 @@ from app.agent import prompts
 from app.agent.orchestrator import orchestrator
 from app.agents.registry import registry as agent_registry
 from app.channels import telegram as telegram_channel
+from app.schedule import runner as schedule_runner
+from app.schedule import store as schedule_store
+from app.schedule import jobs as schedule_jobs
+from app.watchers import store as watcher_store
 from app.core.config import get_settings
 from app.core.security import check_passcode, require_passcode
 from app.core.telemetry import telemetry
@@ -72,6 +76,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     todo_store.init_db()
     device_store.init_db()
     telegram_channel.init_db()
+    schedule_store.init_db()
+    watcher_store.init_db()
 
     # Only writes on a genuinely empty table, so a restart neither duplicates
     # the backlog nor resurrects finished work.
@@ -128,9 +134,25 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     elif telegram_channel.configured():
         log.info("Telegram inbound disabled by JARVIS_TELEGRAM_POLL.")
 
+    schedule_task: asyncio.Task | None = None
+    schedule_enabled = os.getenv("JARVIS_SCHEDULE", "1").strip().lower() not in {"0", "false", "no", "off"}
+    if schedule_enabled:
+        schedule_runner.runner.register("reminders", schedule_jobs.run_reminders)
+        schedule_runner.runner.register("watchers", schedule_jobs.run_watcher_job)
+        schedule_task = asyncio.create_task(schedule_runner.runner.run_loop(), name="schedule-loop")
+    else:
+        log.info("Background schedule disabled by JARVIS_SCHEDULE.")
+
     try:
         yield
     finally:
+        if schedule_task:
+            schedule_runner.runner.stop()
+            schedule_task.cancel()
+            try:
+                await schedule_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutting down
+                pass
         if channel and telegram_task:
             channel.stop()
             telegram_task.cancel()

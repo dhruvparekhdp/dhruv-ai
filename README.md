@@ -107,7 +107,7 @@ Open http://127.0.0.1:8000 and enter `dev`.
 No API key needed — Jarvis falls back to a local engine and tells you it's doing so.
 
 ```bash
-pytest -q          # 213 tests, no network, no tokens spent
+pytest -q          # 217 tests, no network, no tokens spent
 ```
 
 The same suite runs against either backend. The host runs SQLite (D-027); Postgres stays supported

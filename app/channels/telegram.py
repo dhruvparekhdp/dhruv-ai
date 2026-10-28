@@ -150,9 +150,13 @@ def is_owner(chat_id: Any) -> bool:
 
 async def handle_update(update: dict[str, Any]) -> tuple[str, str] | None:
     """Turn one Telegram update into (chat_id, reply), or None to stay silent."""
+    callback = update.get("callback_query")
+    if isinstance(callback, dict):
+        return await _handle_callback(callback)
+
     message = update.get("message")
     if not isinstance(message, dict):
-        return None  # edits, channel posts, button callbacks: not handled yet
+        return None
 
     chat_id = str((message.get("chat") or {}).get("id", ""))
     if not is_owner(chat_id):
@@ -165,6 +169,86 @@ async def handle_update(update: dict[str, Any]) -> tuple[str, str] | None:
         return chat_id, "I can only read text for now."
 
     return chat_id, await handle_text(text)
+
+
+async def _handle_callback(callback: dict[str, Any]) -> tuple[str, str] | None:
+    from app.missions.models import ApprovalDecision
+    from app.missions import store as mission_store
+
+    message = callback.get("message") or {}
+    chat_id = str((message.get("chat") or {}).get("id", ""))
+    if not is_owner(chat_id):
+        return None
+
+    data = (callback.get("data") or "").strip()
+    if not data.startswith("appr:"):
+        return chat_id, "That button is no longer wired up."
+
+    parts = data.split(":", 2)
+    if len(parts) != 3:
+        return chat_id, "Bad approval payload."
+    _, action, approval_id = parts
+    decision = ApprovalDecision.APPROVED if action == "yes" else ApprovalDecision.DENIED
+    if not mission_store.decide_approval(approval_id, decision, decided_by="telegram"):
+        return chat_id, "That approval was already decided or does not exist."
+    verb = "Approved" if decision == ApprovalDecision.APPROVED else "Denied"
+    tool = mission_store.get_approval(approval_id)
+    tool_name = (tool or {}).get("tool_name", "tool")
+    return chat_id, f"{verb}: {tool_name}"
+
+
+def approval_keyboard(approval_id: str) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Approve", "callback_data": f"appr:yes:{approval_id}"},
+                {"text": "Deny", "callback_data": f"appr:no:{approval_id}"},
+            ]
+        ]
+    }
+
+
+def format_approval_message(record: dict[str, Any]) -> str:
+    args = record.get("tool_arguments") or {}
+    return (
+        f"Approval needed\n"
+        f"Agent: {record.get('agent_id')}\n"
+        f"Tool: {record.get('tool_name')}\n"
+        f"Args: {args}\n"
+        f"id: {record.get('approval_id')}"
+    )
+
+
+async def notify_approval(approval_id: str) -> bool:
+    """Push inline buttons to the owner chat. Returns False if Telegram is off."""
+    from app.missions import store as mission_store
+
+    if not configured():
+        return False
+    record = mission_store.get_approval(approval_id)
+    if not record:
+        return False
+    chat_id = reminders._chat_id()  # noqa: SLF001
+    payload = {
+        "chat_id": chat_id,
+        "text": format_approval_message(record),
+        "reply_markup": approval_keyboard(approval_id),
+        "disable_web_page_preview": True,
+    }
+    await _http_transport("sendMessage", payload)
+    return True
+
+
+async def send_owner_text(text: str) -> bool:
+    if not configured():
+        return False
+    chat_id = reminders._chat_id()  # noqa: SLF001
+    for chunk in split_message(text):
+        await _http_transport(
+            "sendMessage",
+            {"chat_id": chat_id, "text": chunk, "disable_web_page_preview": True},
+        )
+    return True
 
 
 async def handle_text(text: str) -> str:
@@ -313,7 +397,11 @@ class TelegramChannel:
         last = int(_state().get("last_update_id") or 0)
         body = await self.transport(
             "getUpdates",
-            {"offset": last + 1, "timeout": timeout, "allowed_updates": ["message"]},
+            {
+                "offset": last + 1,
+                "timeout": timeout,
+                "allowed_updates": ["message", "callback_query"],
+            },
         )
         handled = 0
         for update in body.get("result", []):
@@ -337,6 +425,15 @@ class TelegramChannel:
                     {"chat_id": chat_id, "text": chunk, "disable_web_page_preview": True},
                 )
             handled += 1
+            callback = update.get("callback_query")
+            if isinstance(callback, dict) and callback.get("id"):
+                try:
+                    await self.transport(
+                        "answerCallbackQuery",
+                        {"callback_query_id": callback["id"]},
+                    )
+                except Exception:  # noqa: BLE001
+                    log.debug("answerCallbackQuery failed", exc_info=True)
         return handled
 
     async def run(self) -> None:
