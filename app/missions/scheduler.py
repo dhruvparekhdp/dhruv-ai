@@ -351,6 +351,12 @@ class MissionScheduler:
                 mission_id=mission.mission_id, task_id=task.task_id,
                 approval_id=approval_id, tool=tool_name, arguments=arguments,
             )
+            try:
+                from app.channels import telegram as telegram_channel
+
+                await telegram_channel.notify_approval(approval_id)
+            except Exception:  # noqa: BLE001 - Telegram is optional
+                log.debug("Telegram approval notify failed", exc_info=True)
 
             deadline = time.monotonic() + APPROVAL_TIMEOUT_SECONDS
             while time.monotonic() < deadline:

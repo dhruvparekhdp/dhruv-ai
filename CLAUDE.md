@@ -98,6 +98,8 @@ app/
     store.py               scoped entries with provenance
     embeddings.py          local ONNX embeddings, optional at runtime
     search.py              hybrid retrieval: vector + BM25, fused
+  channels/telegram.py     inbound Telegram: owner-only, long-polled, at-most-once
+  devices/store.py         phone check-ins (report-only; not nodes — D-013, D-030)
   nodes/                   the fleet
     models.py              Node, capabilities, statuses
     store.py               durable registry; secrets stored hashed
@@ -109,7 +111,8 @@ app/
 nodes/pc/agent.py          the agent that runs on each machine
   services/websocket_manager.py
   static/                  vanilla PWA, no build step
-docs/                      ARCHITECTURE, DECISIONS, ROADMAP, SETUP-HOST, SETUP-NODE
+ios/                       native iPhone client — see ios/README.md (built on a Mac, not here)
+docs/                      VISION, PLAN, ARCHITECTURE, DECISIONS, ROADMAP, SETUP-HOST, SETUP-NODE
 drills/                    debugging drills: planted bugs + a runner (see drills/README.md)
 ```
 
@@ -130,11 +133,17 @@ drills/                    debugging drills: planted bugs + a runner (see drills
 
 ## Current state
 
-Phases 1 and 2 are done: chat, mood check-ins, telemetry flywheel, PWA, and the full orchestration
-substrate (missions, agents, tools, permissions, approvals, budgets, crash recovery).
-**150 tests, passing on SQLite and Postgres 16.**
+Phases 1–2.6 and Phase 3 **core** are done: chat, mood, telemetry flywheel, PWA, orchestration
+substrate (missions, agents, tools, permissions, approvals, budgets, crash recovery), hybrid memory,
+and the node protocol + PC agent (`fs.*`, `shell.exec`, `system.stats` — no screenshot or desktop
+control). Phase 2.5 **partial**: device check-ins, Telegram inbound (commands + chat, owner-only),
+native iOS client (`ios/`, not yet build-verified), todos + MCP. Background schedule (reminders +
+watchers), Telegram inline approvals, optional Ollama. **217 tests**, passing on SQLite and Postgres 16.
 
-**Next: Phase 3** — node protocol and the PC node agent, running on the host laptop.
+**Next:** build order in [`docs/PLAN.md`](docs/PLAN.md). Research, Horizon A–C, and LoRA path in
+[`docs/RESTART-PLAN.md`](docs/RESTART-PLAN.md). Phase 3 leftovers (screenshot, AT-SPI, PWA system
+panels, Ansible) ride Horizon B there. Jarvis is control plane for your machines (D-028), not a host
+for other projects.
 
 ### The fleet (decided)
 
@@ -142,8 +151,8 @@ substrate (missions, agents, tools, permissions, approvals, budgets, crash recov
 
 | Machine | Role today | Desktop |
 |---|---|---|
-| i5 / 16 GB | master: orchestrator, Postgres, memory, PWA | XFCE (D-018) |
-| i3 / 12 GB | inference: Ollama 7B fallback, Whisper, TTS | headless |
+| i5 / 16 GB | master: orchestrator, SQLite, memory, PWA | headless + Cockpit (D-026) |
+| i3 / 12 GB | worker | headless |
 | i5 / 8 GB | sandbox: untrusted code, browser automation | headless |
 
 Roles are **not** in code. Each node advertises `capabilities` and the scheduler places work against
@@ -155,8 +164,8 @@ them (D-023), so adding, removing or repurposing a machine is a one-line change 
 iPhone / any browser
    │  HTTPS via Tailscale Funnel (free, stable *.ts.net, no domain, no card)
    ▼
-Host laptop — Debian 13 + XFCE, i5-1235U, 16 GB
-   Jarvis orchestrator + PC node + (later) Ollama local fallback
+Host laptop `dhruv-ai` — Debian 13, headless, i5-1235U, 16 GB
+   Jarvis orchestrator + PC node + SQLite (D-027)
 ```
 
 Cloud inference (Groq, Gemini) still happens over the internet; only *hosting* is local.

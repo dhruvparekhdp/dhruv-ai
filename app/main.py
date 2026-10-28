@@ -29,9 +29,16 @@ from pydantic import BaseModel, Field
 from app.agent import prompts
 from app.agent.orchestrator import orchestrator
 from app.agents.registry import registry as agent_registry
+from app.channels import telegram as telegram_channel
+from app.schedule import runner as schedule_runner
+from app.schedule import store as schedule_store
+from app.schedule import jobs as schedule_jobs
+from app.watchers import store as watcher_store
 from app.core.config import get_settings
 from app.core.security import check_passcode, require_passcode
 from app.core.telemetry import telemetry
+from app.devices import store as device_store
+from app.devices.store import DeviceError
 from app.missions import store as mission_store
 from app.missions.models import ApprovalDecision, Budget
 from app.memory import search as memory_search
@@ -67,6 +74,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     memory_store.init_db()
     node_store.init_db()
     todo_store.init_db()
+    device_store.init_db()
+    telegram_channel.init_db()
+    schedule_store.init_db()
+    watcher_store.init_db()
 
     # Only writes on a genuinely empty table, so a restart neither duplicates
     # the backlog nor resurrects finished work.
@@ -107,11 +118,48 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     if not settings.auth_enabled:
         log.warning("No JARVIS_PASSCODE set - the API is unauthenticated.")
     if settings.storage_backend == "sqlite":
-        log.warning(
-            "Using SQLite. On an ephemeral host this database is wiped on every "
-            "restart; set DATABASE_URL to a Postgres instance to keep telemetry."
-        )
-    yield
+        # The default on the host (D-027). Only a problem on a host whose disk
+        # does not survive a restart.
+        log.info("Using SQLite at %s.", settings.sqlite_path)
+
+    # Inbound Telegram. Off unless a token and the owner's chat ID are both set,
+    # and switchable off with JARVIS_TELEGRAM_POLL=0 — e.g. on a dev laptop
+    # while the host is polling the same bot (D-029: one poller per token).
+    telegram_task: asyncio.Task | None = None
+    channel: telegram_channel.TelegramChannel | None = None
+    poll_enabled = os.getenv("JARVIS_TELEGRAM_POLL", "1").strip().lower() not in {"0", "false", "no", "off"}
+    if telegram_channel.configured() and poll_enabled:
+        channel = telegram_channel.TelegramChannel()
+        telegram_task = asyncio.create_task(channel.run(), name="telegram-channel")
+    elif telegram_channel.configured():
+        log.info("Telegram inbound disabled by JARVIS_TELEGRAM_POLL.")
+
+    schedule_task: asyncio.Task | None = None
+    schedule_enabled = os.getenv("JARVIS_SCHEDULE", "1").strip().lower() not in {"0", "false", "no", "off"}
+    if schedule_enabled:
+        schedule_runner.runner.register("reminders", schedule_jobs.run_reminders)
+        schedule_runner.runner.register("watchers", schedule_jobs.run_watcher_job)
+        schedule_task = asyncio.create_task(schedule_runner.runner.run_loop(), name="schedule-loop")
+    else:
+        log.info("Background schedule disabled by JARVIS_SCHEDULE.")
+
+    try:
+        yield
+    finally:
+        if schedule_task:
+            schedule_runner.runner.stop()
+            schedule_task.cancel()
+            try:
+                await schedule_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutting down
+                pass
+        if channel and telegram_task:
+            channel.stop()
+            telegram_task.cancel()
+            try:
+                await telegram_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutting down
+                pass
 
 
 app = FastAPI(
@@ -211,6 +259,18 @@ class TodoUpdateRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=4000)
     due_at: str | None = None
     remind_at: str | None = None
+
+
+class DeviceCheckinRequest(BaseModel):
+    device_id: str = Field(min_length=1, max_length=100)
+    name: str = Field(default="", max_length=100)
+    platform: str = Field(default="", max_length=32)
+    model: str = Field(default="", max_length=64)
+    os_version: str = Field(default="", max_length=32)
+    app_version: str = Field(default="", max_length=32)
+    #: What produced this report: "app_open", "siri", "shortcut:arrived_office".
+    via: str = Field(default="", max_length=64)
+    metrics: dict[str, Any] = Field(default_factory=dict)
 
 
 class TrackActiveRequest(BaseModel):
@@ -676,6 +736,49 @@ async def set_track(track: str, req: TrackActiveRequest, _: Guarded) -> dict[str
 async def sweep_reminders(_: Guarded) -> dict[str, Any]:
     """Send any reminders that have come due. Idempotent; safe on a timer."""
     return {"status": "success", **await todo_reminders.sweep()}
+
+
+# --------------------------------------------------------------------------
+# Reporting devices (the iPhone — D-013)
+# --------------------------------------------------------------------------
+
+
+@app.post("/api/v1/devices/checkin", tags=["devices"], status_code=status.HTTP_201_CREATED)
+async def device_checkin(req: DeviceCheckinRequest, _: Guarded) -> dict[str, Any]:
+    """A phone reporting on itself. Every check-in is kept, never overwritten."""
+    try:
+        report = device_store.record(
+            req.device_id, name=req.name, platform=req.platform, model=req.model,
+            os_version=req.os_version, app_version=req.app_version, via=req.via,
+            metrics=req.metrics,
+        )
+    except DeviceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    await ws_manager.broadcast("device", f"Check-in from {report['name'] or report['device_id']}")
+    return {"status": "success", "report": report}
+
+
+@app.get("/api/v1/devices", tags=["devices"])
+async def list_devices(_: Guarded) -> dict[str, Any]:
+    devices = device_store.latest_per_device()
+    return {"status": "success", "count": len(devices), "devices": devices}
+
+
+@app.get("/api/v1/devices/{device_id}/reports", tags=["devices"])
+async def device_reports(
+    device_id: str, _: Guarded, limit: int = Query(default=50, ge=1, le=500)
+) -> dict[str, Any]:
+    reports = device_store.history(device_id, limit=limit)
+    return {"status": "success", "count": len(reports), "reports": reports}
+
+
+@app.delete("/api/v1/devices/{device_id}", tags=["devices"])
+async def forget_device(device_id: str, _: Guarded) -> dict[str, Any]:
+    """Wipe everything a device has reported."""
+    removed = device_store.forget(device_id)
+    if removed == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No reports from that device.")
+    return {"status": "success", "device_id": device_id, "removed": removed}
 
 
 # --------------------------------------------------------------------------

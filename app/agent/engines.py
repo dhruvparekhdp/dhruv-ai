@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.agent import llm_budget
 from app.agent import router as intent_router
 from app.core.config import Settings, get_settings
 
@@ -111,6 +112,8 @@ class GroqEngine:
         try:
             completion = self._get_client().chat.completions.create(**kwargs)
         except Exception as exc:  # noqa: BLE001 - surfaced as EngineError
+            if "429" in str(exc):
+                llm_budget.mark_cooled(self.provider, 60.0)
             raise EngineError(f"Groq call failed: {exc}") from exc
 
         choice = completion.choices[0].message
@@ -269,6 +272,48 @@ class GeminiEngine:
         )
 
 
+class OllamaEngine:
+    provider = "OLLAMA"
+
+    def __init__(self, settings: Settings) -> None:
+        self.base_url = settings.ollama_base_url.rstrip("/")
+        self.model = settings.ollama_model
+
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 1200,
+    ) -> EngineResult:
+        import httpx
+
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "options": {"num_predict": max_tokens},
+        }
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                response = client.post(f"{self.base_url}/api/chat", json=payload)
+                response.raise_for_status()
+                body = response.json()
+        except Exception as exc:  # noqa: BLE001
+            raise EngineError(f"Ollama call failed: {exc}") from exc
+
+        message = body.get("message") or {}
+        text = (message.get("content") or "").strip()
+        return EngineResult(text=text, provider=self.provider, model=self.model)
+
+    def complete(self, system_prompt: str, user_prompt: str) -> EngineResult:
+        return self.chat(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+
+
 class EchoEngine:
     """Local no-key fallback.
 
@@ -358,6 +403,7 @@ class EngineRouter:
         self.settings = settings or get_settings()
         self.groq = GroqEngine(self.settings) if self.settings.groq_enabled else None
         self.gemini = GeminiEngine(self.settings) if self.settings.gemini_enabled else None
+        self.ollama = OllamaEngine(self.settings) if self.settings.ollama_enabled else None
         self.echo = EchoEngine()
 
     # -- introspection ---------------------------------------------------
@@ -368,13 +414,15 @@ class EngineRouter:
             names.append("groq")
         if self.gemini:
             names.append("gemini")
+        if self.ollama:
+            names.append("ollama")
         names.append("echo")
         return names
 
     @property
     def is_degraded(self) -> bool:
-        """True when no real provider is configured."""
-        return self.groq is None and self.gemini is None
+        """True when no cloud or local model engine is configured."""
+        return self.groq is None and self.gemini is None and self.ollama is None
 
     def describe(self) -> dict[str, Any]:
         return {
@@ -382,6 +430,7 @@ class EngineRouter:
             "degraded": self.is_degraded,
             "groq_model": self.settings.groq_model if self.groq else None,
             "gemini_model": self.settings.gemini_model if self.gemini else None,
+            "ollama_model": self.settings.ollama_model if self.ollama else None,
         }
 
     # -- selection -------------------------------------------------------
@@ -391,9 +440,16 @@ class EngineRouter:
         deep = intent in (intent_router.CODING_AGENT, intent_router.QUANT_TRADING)
         return self._chain(deep=deep)
 
+    def _usable(self, engine: Any | None) -> bool:
+        if engine is None:
+            return False
+        return llm_budget.is_available(getattr(engine, "provider", ""))
+
     def _chain(self, *, deep: bool) -> list[Any]:
         preferred = [self.gemini, self.groq] if deep else [self.groq, self.gemini]
-        chain = [engine for engine in preferred if engine is not None]
+        chain = [engine for engine in preferred if self._usable(engine)]
+        if self._usable(self.ollama):
+            chain.append(self.ollama)
         chain.append(self.echo)
         return chain
 
