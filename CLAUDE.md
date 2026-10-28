@@ -137,10 +137,8 @@ Phases 1–2.6 and Phase 3 **core** are done: chat, mood, telemetry flywheel, PW
 substrate (missions, agents, tools, permissions, approvals, budgets, crash recovery), hybrid memory,
 and the node protocol + PC agent (`fs.*`, `shell.exec`, `system.stats` — no screenshot or desktop
 control). Phase 2.5 **partial**: device check-ins, Telegram inbound (commands + chat, owner-only),
-native iOS client (`ios/`, not yet build-verified), todos + MCP. **213 tests**, passing on SQLite
-and Postgres 16.
-
-Nothing calls the reminder sweep on a schedule yet; **inline Telegram approvals** are still open.
+native iOS client (`ios/`, not yet build-verified), todos + MCP. Background schedule (reminders +
+watchers), Telegram inline approvals, optional Ollama. **217 tests**, passing on SQLite and Postgres 16.
 
 **Next:** build order in [`docs/PLAN.md`](docs/PLAN.md). Research, Horizon A–C, and LoRA path in
 [`docs/RESTART-PLAN.md`](docs/RESTART-PLAN.md). Phase 3 leftovers (screenshot, AT-SPI, PWA system
