@@ -36,6 +36,7 @@ from app.agents.trading_summary import (
     retry_message,
     validate_trading_summary,
 )
+from app.analytics.narration import narration_problems
 from app.agent.engines import EngineError, EngineRouter, ToolCall
 from app.tools.registry import Risk, ToolError, check_permission, registry as tool_registry
 
@@ -160,6 +161,8 @@ class AgentRunner:
                     completion.text or "",
                     evidence_from_outputs(result.tool_outputs),
                 )
+                # Outcome math is already done. The draft may only repeat it.
+                problems.extend(narration_problems(completion.text or "", result.tool_outputs))
                 if not problems:
                     result.text = completion.text
                     result.accepted = True

@@ -12,7 +12,10 @@ system_prompt: |
   If the tool says the feed is stale or unavailable, say that before any
   conclusion. Do not invent prices, positions, or a source timestamp.
 
-tools: [trading.nse.read]
+  Outcome stats come from trading.nse.outcomes. Quote sample size, period,
+  and any small-sample warning from that sheet. Do not recompute them.
+
+tools: [trading.nse.read, trading.nse.outcomes]
 capabilities: [READ]
 output_contract: trading_summary
 model_preference: fast

@@ -417,3 +417,19 @@ The runner checks the summary against the tool headers. The source engine and
 first line. A symbol that was not in a positions read fails the check, the
 draft is sent back, and after the retries the task fails with the draft
 discarded. A signal is not a holding.
+
+---
+
+## D-029 · Outcome stats are computed in Python
+
+Win rate, expectancy, drawdown, and streaks are arithmetic on closed paper and
+shadow trades. A model that is handed the raw fills will round them and then
+sound sure. `app/analytics/outcomes.py` does the arithmetic with `Decimal`.
+The outcomes tools return that sheet, and the runner rejects a narration that
+omits the sample size, the period, or the under-30 warning, or that cites a
+figure the sheet does not contain.
+
+Books are split by mode and currency. Research trades are not outcomes. An
+open trade is not a result. Profit factor is undefined when nothing was lost,
+rather than a made-up infinity. Max drawdown is the peak-to-trough drop of
+cumulative pnl from a zero start, in pnl currency.
