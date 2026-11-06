@@ -95,15 +95,16 @@ plainly rather than pretending to have run something.
 
 ```bash
 pip install -r requirements-dev.txt
-JARVIS_PASSCODE=dev uvicorn app.main:app --reload
+JARVIS_PASSCODE=dev python -m app
 ```
 
-Open http://127.0.0.1:8000 and enter `dev`.
+Open http://127.0.0.1:8000 and enter `dev`. The process binds `127.0.0.1` and refuses to start if
+`JARVIS_PASSCODE` is unset (`JARVIS_DEV_INSECURE=1` is the loopback-only exception).
 
 No API key needed — Jarvis falls back to a local engine and tells you it's doing so.
 
 ```bash
-pytest -q          # 150 tests, no network, no tokens spent
+pytest -q          # no network, no tokens spent
 ```
 
 The same suite runs against either backend. The host runs Postgres while local development runs on
@@ -143,7 +144,14 @@ API keys — both optional, and Jarvis runs without either:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `JARVIS_PASSCODE` | _(none)_ | Required on all API calls. Unset = **no auth at all**. |
+| `JARVIS_PASSCODE` | _(none)_ | Required. Unset **refuses to start**. |
+| `JARVIS_DEV_INSECURE` | `0` | With no passcode, serve anyway. Honoured only on a loopback bind, and it logs a loud warning. |
+| `JARVIS_HOST` | `127.0.0.1` | Bind address used by `python -m app`. |
+| `JARVIS_PORT` | `8000` | Bind port used by `python -m app`. |
+| `JARVIS_ALLOW_PUBLIC_BIND` | `0` | Required to listen on anything other than loopback, including `uvicorn --host 0.0.0.0`. |
+| `JARVIS_SESSION_TTL_SECONDS` | `43200` | Session token lifetime (12 hours). |
+| `JARVIS_LOGIN_MAX_FAILURES` | `5` | Failed logins before lockout. |
+| `JARVIS_LOGIN_BACKOFF_SECONDS` | `30` | First lockout. Doubles on further failures, capped at 15 minutes. |
 | `GROQ_API_KEY` | _(none)_ | Fast engine. |
 | `GEMINI_API_KEY` | _(none)_ | Deep-reasoning engine. |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | See the model note below. |
@@ -160,12 +168,21 @@ API keys — both optional, and Jarvis runs without either:
 
 ## API
 
-Every `/api/v1/*` route requires the `X-Jarvis-Passcode` header. The WebSocket takes it as a query
-parameter, because browsers can't set headers on a WS handshake.
+Every API, WebSocket, and node route requires auth. `/health` and the PWA shell do not, so a probe
+can run and the lock screen can load.
+
+`POST /api/v1/auth/login` exchanges `JARVIS_PASSCODE` for a bearer token that expires (default 12
+hours). Send it as `Authorization: Bearer <token>` or `X-Jarvis-Token`. `POST /api/v1/auth/logout`
+revokes it. The `X-Jarvis-Passcode` header still authorises a request directly, and failed guesses
+on either path share one lockout. The log stream takes `?token=` (or `?passcode=`) because browsers
+can't set headers on a WebSocket handshake. `/ws/node` still authenticates with the node secret or
+a one-time enrolment token.
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/health` | Liveness, engine + storage state. **Unauthenticated** (for uptime probes). |
+| `POST` | `/api/v1/auth/login` | Exchange the passcode for an expiring session token. |
+| `POST` | `/api/v1/auth/logout` | Revoke the presented session token. |
 | `GET` | `/api/v1/greeting` | Time-aware greeting and the mood scale. |
 | `POST` | `/api/v1/session/start` | Mint a session id. |
 | `GET` | `/api/v1/session/{id}` | Cheap existence check. |

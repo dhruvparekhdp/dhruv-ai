@@ -49,6 +49,9 @@ def _reset_postgres() -> None:
 def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Isolated settings + database for one test."""
     monkeypatch.setenv("JARVIS_PASSCODE", TEST_PASSCODE)
+    monkeypatch.setenv("JARVIS_HOST", "127.0.0.1")
+    monkeypatch.delenv("JARVIS_DEV_INSECURE", raising=False)
+    monkeypatch.delenv("JARVIS_ALLOW_PUBLIC_BIND", raising=False)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
@@ -59,13 +62,16 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         monkeypatch.delenv("DATABASE_URL", raising=False)
 
     from app.core.config import get_settings
+    from app.core.security import reset_auth_state
 
     get_settings.cache_clear()
+    reset_auth_state()
     if TEST_DATABASE_URL:
         _reset_postgres()
 
     yield
     get_settings.cache_clear()
+    reset_auth_state()
 
 
 class ScriptedEngine:
