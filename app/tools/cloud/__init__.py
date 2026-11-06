@@ -5,6 +5,6 @@ definitions are validated against that registry at startup, so this import must
 happen before `agent_registry.load()`.
 """
 
-from app.tools.cloud import memory, trading, web  # noqa: F401
+from app.tools.cloud import memory, ocr, trading, web  # noqa: F401
 
-__all__ = ["memory", "trading", "web"]
+__all__ = ["memory", "ocr", "trading", "web"]

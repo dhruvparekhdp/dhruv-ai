@@ -228,9 +228,10 @@ app/
   nodes/       models · store · gateway                    (the fleet)
 nodes/pc/      the node agent that runs on each machine
   missions/    models · store · planner · scheduler        (orchestration)
-  tools/       registry · cloud/{memory,web}               (capability + risk)
+  tools/       registry · cloud/{memory,web,trading,ocr}  (capability + risk)
   adapters/    base HTTP client, circuit breaker, registry
     trading/   read-only crypto and NSE clients (not an order API)
+    ocr.py     POST /v1/extract; stub when the service URL is unset
   contracts/   trading-v1 models; not served by this process
   analytics/   paper and shadow outcome math; no model calls
   alerts/      in-app inbox, IST quiet hours, daily briefing mission
