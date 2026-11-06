@@ -60,28 +60,29 @@ def _fails(sql: str, params: tuple = ()) -> None:
 
 
 def test_migrate_up_down_and_up_again(env):
-    assert migrate.migrate_up() == ["0001", "0002"]
+    assert migrate.migrate_up() == ["0001", "0002", "0003"]
     tables = set(list_agency_tables())
     assert tables == set(BRAND_SCOPED_TABLES) | {"agy_brands", "agy_schema_migrations"}
     assert "source_item_id" in table_columns("agy_content_items")
     assert migrate.migrate_up() == []
 
-    assert migrate.migrate_down() == ["0002", "0001"]
+    assert migrate.migrate_down() == ["0003", "0002", "0001"]
     assert list_agency_tables() == []
     assert migrate.applied_versions() == []
     # A second down is a no-op, not an error.
     assert migrate.migrate_down() == []
 
-    assert migrate.migrate_up() == ["0001", "0002"]
+    assert migrate.migrate_up() == ["0001", "0002", "0003"]
     assert "agy_brands" in list_agency_tables()
 
 
 def test_migrate_down_one_step(env):
     migrate.migrate_up()
-    assert migrate.migrate_down(steps=1) == ["0002"]
+    assert migrate.migrate_down(steps=1) == ["0003"]
     assert "agy_brands" in list_agency_tables()
-    assert "source_item_id" not in table_columns("agy_content_items")
-    assert migrate.migrate_down() == ["0001"]
+    assert "agy_brand_profiles" not in list_agency_tables()
+    assert "source_item_id" in table_columns("agy_content_items")
+    assert migrate.migrate_down() == ["0002", "0001"]
     assert list_agency_tables() == []
 
 
