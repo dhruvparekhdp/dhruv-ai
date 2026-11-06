@@ -61,6 +61,7 @@ BRAND_SCOPED_TABLES: tuple[str, ...] = (
     "agy_content_revisions",
     "agy_calendar_slots",
     "agy_approvals",
+    "agy_approvers",
     "agy_kpi_definitions",
     "agy_metric_entries",
     "agy_competitors",
@@ -170,12 +171,19 @@ class ContentIdeaStatus(str, Enum):
 
 
 class ContentItemStatus(str, Enum):
-    """Where a draft sits. None of these values publishes it anywhere."""
+    """Workflow label. ``published`` is a manual mark, not a platform post."""
 
+    IDEA = "idea"
+    RESEARCH = "research"
+    BRIEF = "brief"
+    OUTLINE = "outline"
     DRAFT = "draft"
-    IN_REVIEW = "in_review"
+    CREATIVE_BRIEF = "creative_brief"
+    REVIEW = "review"
     APPROVED = "approved"
     SCHEDULED = "scheduled"
+    PUBLISHED = "published"
+    ANALYZED = "analyzed"
     ARCHIVED = "archived"
 
 
@@ -433,9 +441,11 @@ class ContentItem(Model):
     channel_id: str | None = None
     campaign_id: str | None = None
     body: str = ""
-    status: ContentItemStatus = ContentItemStatus.DRAFT
+    status: ContentItemStatus = ContentItemStatus.IDEA
     scheduled_at: datetime | None = None
     source_item_id: str | None = None
+    published_url: str = ""
+    published_on: date | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -446,6 +456,8 @@ class ContentRevision(Model):
     brand_id: str
     content_item_id: str
     revision_no: int
+    author: str
+    title: str = ""
     body: str = ""
     note: str = ""
     created_at: datetime | None = None
@@ -479,8 +491,21 @@ class Approval(Model):
     subject_type: ApprovalSubject
     subject_id: str
     status: ApprovalStatus = ApprovalStatus.PENDING
+    approver_id: str | None = None
     note: str = ""
     decided_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass
+class Approver(Model):
+    """A person allowed to approve content for one brand. Not a login."""
+
+    id: str
+    brand_id: str
+    name: str
+    email: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -631,6 +656,7 @@ BRAND_SCOPED_MODELS: tuple[type[Model], ...] = (
     ContentRevision,
     CalendarSlot,
     Approval,
+    Approver,
     KPIDefinition,
     MetricEntry,
     Competitor,

@@ -39,7 +39,7 @@ _TABLES = (
     "agy_access_items", "agy_brand_profiles",
     "agy_estimate_lines", "agy_estimates", "agy_service_templates",
     "agy_research_notes", "agy_competitors", "agy_metric_entries",
-    "agy_kpi_definitions", "agy_approvals", "agy_calendar_slots",
+    "agy_kpi_definitions", "agy_approvals", "agy_approvers", "agy_calendar_slots",
     "agy_content_revisions", "agy_content_items", "agy_content_ideas",
     "agy_templates", "agy_channels", "agy_campaigns", "agy_deliverables",
     "agy_tasks", "agy_projects", "agy_lead_stage_history", "agy_leads",
