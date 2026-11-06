@@ -397,3 +397,23 @@ The engine compares `Authorization: Bearer` with `INTEGRATION_API_TOKEN` using
 `hmac.compare_digest`, and an empty expected token fails closed. The clients
 read `CRYPTO_INTEGRATION_API_TOKEN` and `NSE_INTEGRATION_API_TOKEN` so the two
 feeds do not share one secret by accident.
+
+---
+
+## D-028 · Analysts read the trading adapters and cannot order
+
+`crypto_analyst`, `nse_analyst`, `portfolio_analyst`, `risk_analyst`, and
+`trading_research` are YAML definitions on the same runner as every other
+agent. Their only tools are `trading.crypto.read` and `trading.nse.read`.
+Capability is READ and risk is SAFE, so a read is not parked as if it were a
+write.
+
+Order-like tool names are denied in `check_permission` before the allowlist is
+consulted. An approval prompt is the wrong control for a place, cancel, or
+transfer: the call should be impossible.
+
+The runner checks the summary against the tool headers. The source engine and
+`data_as_of` have to match the read. Stale or unavailable input has to be the
+first line. A symbol that was not in a positions read fails the check, the
+draft is sent back, and after the retries the task fails with the draft
+discarded. A signal is not a holding.

@@ -293,6 +293,32 @@ class MissionScheduler:
             )
             return {"tokens": 0, "tool_calls": 0}
 
+        if not outcome.accepted:
+            # A rejected summary is a failed task. Storing the draft would let
+            # an invented holding ride into the mission summary.
+            store.update_task(
+                task.task_id,
+                status=TaskStatus.FAILED,
+                result="",
+                error=outcome.text,
+                clear_lease=True,
+                prompt_tokens=outcome.prompt_tokens,
+                completion_tokens=outcome.completion_tokens,
+                tool_calls=outcome.tool_calls,
+            )
+            store.log_message(
+                mission_id=mission.mission_id, task_id=task.task_id,
+                sender=definition.id, receiver="orchestrator",
+                action="task.failed",
+                payload={"error": "summary rejected"},
+                status="FAILED",
+            )
+            await ws_manager.broadcast(
+                "task", f"{definition.name} summary rejected",
+                mission_id=mission.mission_id, task_id=task.task_id, status="FAILED",
+            )
+            return {"tokens": outcome.total_tokens, "tool_calls": outcome.tool_calls}
+
         store.update_task(
             task.task_id,
             status=TaskStatus.SUCCESS,

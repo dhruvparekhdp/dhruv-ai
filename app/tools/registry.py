@@ -14,6 +14,7 @@ Every tool declares:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Awaitable, Callable, Protocol
@@ -121,6 +122,20 @@ class PermissionVerdict:
     reason: str = ""
 
 
+# Segments, not substrings: "read" must not match, and "border" must not match
+# "order". A hit here is a hard deny. Approval is the wrong control for a tool
+# whose only job is to send an order.
+_ORDER_LIKE = re.compile(
+    r"(?:^|[._-])(?:place|cancel|amend|modify|withdraw|transfer|submit|order|orders|buy|sell)(?:$|[._-])",
+    re.IGNORECASE,
+)
+
+
+def is_order_like(name: str) -> bool:
+    """True when the tool name is an order, cancel, transfer, or similar write."""
+    return _ORDER_LIKE.search(name) is not None
+
+
 def check_permission(
     tool: Tool,
     *,
@@ -132,7 +147,13 @@ def check_permission(
     Both gates must pass: the agent's explicit tool allowlist and its capability
     grants. The allowlist alone is not enough -- capabilities are what stop a
     typo in a YAML file from handing an agent the ability to spend money.
+
+    Order-like names are denied before either gate. A YAML edit cannot turn a
+    read into a place, cancel, or transfer.
     """
+    if is_order_like(tool.name):
+        return PermissionVerdict(False, reason="order-like tools are denied")
+
     if tool.name not in allowed_tools:
         return PermissionVerdict(False, reason=f"'{tool.name}' is not in this agent's toolset")
 
