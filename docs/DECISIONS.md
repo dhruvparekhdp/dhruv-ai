@@ -354,3 +354,23 @@ lease that has not actually lapsed, and duplicate work.
 
 `chrony` on every node, installed by the provisioning playbook. Cheap insurance against a whole
 class of distributed-systems bug.
+
+---
+
+## D-026 · External feeds share one adapter client
+
+Market data and any later HTTP integration go through `app/adapters/`, not a
+private `httpx` call inside a tool.
+
+The client is the boundary agents see. A timeout, a 5xx, or an open circuit
+comes back as `unavailable`. Raising would either crash the task or invite the
+model to invent the payload the feed did not return.
+
+Retries are GET-only and jittered. A retried POST can apply twice, and identical
+backoff makes every replica retry together. Each adapter has its own circuit so
+one dead feed does not block the others. `data_as_of` older than that adapter's
+threshold is stale even when the payload says it is fresh — feeds cache the flag.
+
+Credentials are an env-var name (or an injected secret source) read at call time.
+The value is placed on the request header and nowhere in the log line. httpx
+exception strings are not logged, because they can echo request headers.

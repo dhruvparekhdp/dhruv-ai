@@ -182,6 +182,7 @@ parameter, because browsers can't set headers on a WS handshake.
 | `POST` | `/api/v1/missions/{id}/cancel` | Cancel a running mission. |
 | `GET` | `/api/v1/agents` | Loaded agent definitions. |
 | `GET` | `/api/v1/tools` | Tools with capability and risk. |
+| `GET` | `/api/v1/adapters/health` | Adapter circuits and last result. Does not call upstreams. |
 | `GET` | `/api/v1/nodes` | The fleet: every node, its capabilities and health. |
 | `POST` | `/api/v1/nodes/enrol` | Mint a one-time join token. |
 | `POST` | `/api/v1/nodes/dispatch` | Run a node tool directly. |
@@ -227,6 +228,7 @@ app/
 nodes/pc/      the node agent that runs on each machine
   missions/    models · store · planner · scheduler        (orchestration)
   tools/       registry · cloud/{memory,web}               (capability + risk)
+  adapters/    base HTTP client, circuit breaker, registry
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
 tests/         150 tests, all offline
