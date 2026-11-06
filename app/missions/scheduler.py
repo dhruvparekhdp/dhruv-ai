@@ -18,6 +18,7 @@ from typing import Any
 
 from app.agents.registry import DEFAULT_AGENT_ID, registry as agent_registry
 from app.agents.runner import AgentRunner
+from app.core import usage as usage_ledger
 from app.missions import store
 from app.missions.models import (
     ApprovalDecision,
@@ -134,6 +135,10 @@ class MissionScheduler:
                 )
 
             store.update_mission(mission_id, status=MissionStatus.RUNNING)
+            # The planner call is already on the ledger. If it crossed a spend
+            # budget, do not dispatch the tasks it just created.
+            if await self._pause_if_over_budget(mission):
+                return
             await self._execute_graph(mission, started)
 
         except asyncio.CancelledError:
@@ -169,6 +174,9 @@ class MissionScheduler:
                 await self._abort(mission_id, tasks, exhausted)
                 return
 
+            if await self._pause_if_over_budget(mission):
+                return
+
             ready = self._ready_tasks(tasks)
             if not ready:
                 blocked = self._resolve_blocked(tasks)
@@ -181,12 +189,17 @@ class MissionScheduler:
                 *(self._execute_task(mission, task) for task in ready),
                 return_exceptions=True,
             )
+            paused = False
             for outcome in results:
                 if isinstance(outcome, BaseException):
                     log.error("task execution raised: %s", outcome)
                     continue
                 tokens_used += outcome.get("tokens", 0)
                 tool_calls_used += outcome.get("tool_calls", 0)
+                if outcome.get("paused"):
+                    paused = True
+            if paused:
+                return
 
     def _budget_exhausted(
         self, budget: Budget, *, elapsed: float, tokens: int, tool_calls: int, task_count: int
@@ -293,6 +306,14 @@ class MissionScheduler:
             )
             return {"tokens": 0, "tool_calls": 0}
 
+        if outcome.budget_exceeded:
+            await self._pause_for_spend(mission, outcome.budget_exceeded)
+            return {
+                "tokens": outcome.total_tokens,
+                "tool_calls": outcome.tool_calls,
+                "paused": 1,
+            }
+
         store.update_task(
             task.task_id,
             status=TaskStatus.SUCCESS,
@@ -330,6 +351,71 @@ class MissionScheduler:
             if dependency and dependency.result:
                 chunks.append(f"[{dependency.agent_id}] {dependency.result}")
         return "\n\n".join(chunks)
+
+    async def _pause_if_over_budget(self, mission: Mission) -> bool:
+        """Pause when spend already exceeds a budget. Returns True if it paused.
+
+        Mission and daily limits apply on their own. The agent limit is checked
+        for the planner and for every task agent, because a planner call can
+        cross that agent's budget before any task is dispatched.
+        """
+        agent_ids = {task.agent_id for task in store.list_tasks(mission.mission_id)}
+        agent_ids.add("planner")
+        reason = ""
+        for agent_id in sorted(agent_ids):
+            reason = usage_ledger.blocking(mission.mission_id, agent_id)
+            if reason:
+                break
+        if not reason:
+            return False
+        await self._pause_for_spend(mission, reason)
+        return True
+
+    async def _pause_for_spend(self, mission: Mission, reason: str) -> None:
+        """Park the mission and ask for approval. This is not a failure.
+
+        The call that crossed the line stays in the usage ledger. Nothing
+        further is dispatched until a person decides. The error text is the
+        reason, so the pause is visible on the mission itself.
+        """
+        tasks = store.list_tasks(mission.mission_id)
+        open_tasks = [task for task in tasks if not task.is_terminal]
+        for task in open_tasks:
+            store.update_task(
+                task.task_id,
+                status=TaskStatus.NEEDS_APPROVAL,
+                error=reason,
+                clear_lease=True,
+            )
+        store.update_mission(
+            mission.mission_id, status=MissionStatus.NEEDS_APPROVAL, error=reason
+        )
+        anchor = open_tasks[0] if open_tasks else None
+        approval_id = store.create_approval(
+            mission_id=mission.mission_id,
+            task_id=anchor.task_id if anchor else "",
+            agent_id=anchor.agent_id if anchor else "",
+            tool_name="budget.exceeded",
+            tool_arguments={"reason": reason},
+            risk="BUDGET",
+        )
+        store.log_message(
+            mission_id=mission.mission_id,
+            task_id=anchor.task_id if anchor else "",
+            sender="orchestrator",
+            receiver="user",
+            action="budget.paused",
+            payload={"reason": reason, "approval_id": approval_id},
+            status="NEEDS_APPROVAL",
+        )
+        log.warning("mission %s paused: %s", mission.mission_id, reason)
+        await ws_manager.broadcast(
+            "approval",
+            f"Budget paused the mission: {reason}",
+            mission_id=mission.mission_id,
+            approval_id=approval_id,
+            status="NEEDS_APPROVAL",
+        )
 
     # -- approval --------------------------------------------------------
 
