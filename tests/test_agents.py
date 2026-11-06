@@ -240,5 +240,6 @@ async def test_agent_is_never_offered_tools_it_cannot_use(agents) -> None:
     await AgentRunner(router).run(agents.get("assistant"), objective="hi")
 
     offered = {t["function"]["name"] for t in (engine.calls[0]["tools"] or [])}
-    assert offered == {"memory.search", "memory.read"}
+    assert offered == {"memory.search", "memory.read", "tasks.suggest"}
     assert "memory.forget" not in offered
+    assert "memory.write" not in offered

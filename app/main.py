@@ -45,6 +45,8 @@ from app.todos import reminders as todo_reminders
 from app.todos import seed as todo_seed
 from app.todos import store as todo_store
 from app.todos.models import TodoError
+from app.work_tasks import store as work_task_store
+from app.work_tasks.models import TaskError
 from app.tools import cloud as _cloud_tools  # noqa: F401 - import registers the tools
 from app.tools import node as _node_tools    # noqa: F401 - import registers the tools
 from app.tools.registry import registry as tool_registry
@@ -67,6 +69,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     memory_store.init_db()
     node_store.init_db()
     todo_store.init_db()
+    work_task_store.init_db()
 
     # Only writes on a genuinely empty table, so a restart neither duplicates
     # the backlog nor resurrects finished work.
@@ -216,6 +219,28 @@ class TodoUpdateRequest(BaseModel):
 class TrackActiveRequest(BaseModel):
     is_active: bool
     note: str = Field(default="", max_length=500)
+
+
+class WorkTaskCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    notes: str = Field(default="", max_length=4000)
+    due_at: str | None = None
+    priority: int = Field(default=2, ge=1, le=3)
+    tags: list[str] = Field(default_factory=list)
+    recurrence: str = Field(default="none", max_length=16)
+    link_kind: str | None = None
+    link_id: str | None = None
+
+
+class WorkTaskUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    notes: str | None = Field(default=None, max_length=4000)
+    due_at: str | None = None
+    priority: int | None = Field(default=None, ge=1, le=3)
+    tags: list[str] | None = None
+    recurrence: str | None = Field(default=None, max_length=16)
+    link_kind: str | None = None
+    link_id: str | None = None
 
 
 class EnrolmentRequest(BaseModel):
@@ -676,6 +701,105 @@ async def set_track(track: str, req: TrackActiveRequest, _: Guarded) -> dict[str
 async def sweep_reminders(_: Guarded) -> dict[str, Any]:
     """Send any reminders that have come due. Idempotent; safe on a timer."""
     return {"status": "success", **await todo_reminders.sweep()}
+
+
+# --------------------------------------------------------------------------
+# Personal tasks
+#
+# Not mission steps and not the focus-todo list. Agents can only suggest.
+# --------------------------------------------------------------------------
+
+
+@app.get("/api/v1/tasks", tags=["tasks"])
+async def list_work_tasks(
+    _: Guarded,
+    task_status: str = Query(default="", max_length=16, alias="status"),
+    tag: str = Query(default="", max_length=32),
+    include_done: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, Any]:
+    try:
+        tasks = work_task_store.list_tasks(
+            status=task_status or None,
+            tag=tag or None,
+            include_done=include_done,
+            limit=limit,
+        )
+    except TaskError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "count": len(tasks), "tasks": [item.to_dict() for item in tasks]}
+
+
+@app.post("/api/v1/tasks", tags=["tasks"], status_code=status.HTTP_201_CREATED)
+async def create_work_task(req: WorkTaskCreateRequest, _: Guarded) -> dict[str, Any]:
+    try:
+        task = work_task_store.create(
+            req.title,
+            actor="user",
+            notes=req.notes,
+            due_at=req.due_at,
+            priority=req.priority,
+            tags=req.tags,
+            recurrence=req.recurrence,
+            link_kind=req.link_kind,
+            link_id=req.link_id,
+        )
+    except TaskError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "task": task.to_dict()}
+
+
+@app.get("/api/v1/tasks/{task_id}", tags=["tasks"])
+async def get_work_task(task_id: str, _: Guarded) -> dict[str, Any]:
+    task = work_task_store.get(task_id)
+    if task is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown task_id.")
+    return {"status": "success", "task": task.to_dict()}
+
+
+@app.patch("/api/v1/tasks/{task_id}", tags=["tasks"])
+async def patch_work_task(task_id: str, req: WorkTaskUpdateRequest, _: Guarded) -> dict[str, Any]:
+    try:
+        task = work_task_store.update(task_id, **req.model_dump(exclude_unset=True))
+    except TaskError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if task is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown task_id.")
+    return {"status": "success", "task": task.to_dict()}
+
+
+@app.delete("/api/v1/tasks/{task_id}", tags=["tasks"])
+async def delete_work_task(task_id: str, _: Guarded) -> dict[str, Any]:
+    if not work_task_store.delete(task_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown task_id.")
+    return {"status": "success", "task_id": task_id}
+
+
+@app.post("/api/v1/tasks/{task_id}/accept", tags=["tasks"])
+async def accept_work_task(task_id: str, _: Guarded) -> dict[str, Any]:
+    try:
+        task = work_task_store.accept(task_id)
+    except TaskError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if task is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown task_id.")
+    return {"status": "success", "task": task.to_dict()}
+
+
+@app.post("/api/v1/tasks/{task_id}/complete", tags=["tasks"])
+async def complete_work_task(task_id: str, _: Guarded) -> dict[str, Any]:
+    try:
+        result = work_task_store.complete(task_id)
+    except TaskError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown task_id.")
+    done, nxt = result
+    return {
+        "status": "success",
+        "task": done.to_dict(),
+        "next_task": nxt.to_dict() if nxt else None,
+    }
 
 
 # --------------------------------------------------------------------------
