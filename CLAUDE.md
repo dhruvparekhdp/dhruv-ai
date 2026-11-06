@@ -107,10 +107,12 @@ app/
     cloud/                 memory, web (run in-process)
     node/                  fs, shell, system (declared here, run on a node)
   adapters/                typed HTTP client, per-adapter circuit, health rollup
+    trading/             read-only crypto and NSE clients (trading-v1)
+  contracts/             trading-v1 models; not mounted on the Jarvis API
 nodes/pc/agent.py          the agent that runs on each machine
   services/websocket_manager.py
   static/                  vanilla PWA, no build step
-docs/                      ARCHITECTURE, DECISIONS, ROADMAP, SETUP-HOST, SETUP-NODE
+docs/                      ARCHITECTURE, DECISIONS, ROADMAP, SETUP-HOST, SETUP-NODE, contracts/trading-v1
 drills/                    debugging drills: planted bugs + a runner (see drills/README.md)
 ```
 

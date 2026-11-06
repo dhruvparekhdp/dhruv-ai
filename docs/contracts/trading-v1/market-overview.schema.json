@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "MarketHighlight": {
+      "additionalProperties": false,
+      "properties": {
+        "change_pct": {
+          "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "title": "Change Pct",
+          "type": "string"
+        },
+        "last": {
+          "$ref": "#/$defs/Money"
+        },
+        "symbol": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "last",
+        "change_pct"
+      ],
+      "title": "MarketHighlight",
+      "type": "object"
+    },
+    "Money": {
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "title": "Amount",
+          "type": "string"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3,10}$",
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "title": "Money",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Typed overview. Free text lives in `details` so floats cannot hide there.",
+  "properties": {
+    "details": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Details",
+      "type": "object"
+    },
+    "highlights": {
+      "items": {
+        "$ref": "#/$defs/MarketHighlight"
+      },
+      "title": "Highlights",
+      "type": "array"
+    },
+    "instruments_tracked": {
+      "minimum": 0,
+      "title": "Instruments Tracked",
+      "type": "integer"
+    },
+    "venue": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Venue",
+      "type": "string"
+    }
+  },
+  "required": [
+    "venue",
+    "instruments_tracked",
+    "highlights"
+  ],
+  "title": "MarketOverview",
+  "type": "object"
+}

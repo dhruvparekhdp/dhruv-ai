@@ -1,0 +1,25 @@
+{
+  "source_engine": "nse-trade",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-06T11:59:31Z",
+  "data_as_of": "2026-11-06T11:59:30Z",
+  "status": "ok",
+  "is_stale": false,
+  "mode": "shadow",
+  "correlation_id": "corr-fixture-1",
+  "data": {
+    "service": "nse-trade",
+    "version": "0.9.2",
+    "checks": [
+      {
+        "name": "quotes",
+        "status": "ok",
+        "detail": "cash session marks"
+      }
+    ],
+    "details": {
+      "segment": "EQ"
+    }
+  },
+  "errors": []
+}

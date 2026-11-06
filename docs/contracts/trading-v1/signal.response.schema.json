@@ -1,0 +1,224 @@
+{
+  "$defs": {
+    "ApiError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ApiError",
+      "type": "object"
+    },
+    "FeedStatus": {
+      "enum": [
+        "ok",
+        "degraded",
+        "unavailable"
+      ],
+      "title": "FeedStatus",
+      "type": "string"
+    },
+    "Mode": {
+      "description": "Execution stance the engine is reporting. Live is intentionally absent.",
+      "enum": [
+        "paper",
+        "shadow",
+        "research"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "Page_Signal_": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Signal"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Cursor"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "Page[Signal]",
+      "type": "object"
+    },
+    "Side": {
+      "enum": [
+        "buy",
+        "sell"
+      ],
+      "title": "Side",
+      "type": "string"
+    },
+    "Signal": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 2000,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/Side"
+        },
+        "status": {
+          "$ref": "#/$defs/SignalStatus"
+        },
+        "strategy": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Strategy",
+          "type": "string"
+        },
+        "strategy_version": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Strategy Version",
+          "type": "string"
+        },
+        "strength": {
+          "pattern": "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "title": "Strength",
+          "type": "string"
+        },
+        "symbol": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "symbol",
+        "side",
+        "strength",
+        "strategy",
+        "strategy_version",
+        "generated_at",
+        "status",
+        "rationale"
+      ],
+      "title": "Signal",
+      "type": "object"
+    },
+    "SignalStatus": {
+      "enum": [
+        "active",
+        "closed",
+        "invalidated"
+      ],
+      "title": "SignalStatus",
+      "type": "string"
+    },
+    "SourceEngine": {
+      "enum": [
+        "crypto-signal-engine",
+        "nse-trade"
+      ],
+      "title": "SourceEngine",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "correlation_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/Page_Signal_"
+    },
+    "data_as_of": {
+      "format": "date-time",
+      "title": "Data As Of",
+      "type": "string"
+    },
+    "errors": {
+      "items": {
+        "$ref": "#/$defs/ApiError"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "is_stale": {
+      "title": "Is Stale",
+      "type": "boolean"
+    },
+    "mode": {
+      "$ref": "#/$defs/Mode"
+    },
+    "schema_version": {
+      "pattern": "^1\\.0$",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_engine": {
+      "$ref": "#/$defs/SourceEngine"
+    },
+    "status": {
+      "$ref": "#/$defs/FeedStatus"
+    }
+  },
+  "required": [
+    "source_engine",
+    "schema_version",
+    "generated_at",
+    "data_as_of",
+    "status",
+    "is_stale",
+    "mode",
+    "correlation_id",
+    "data",
+    "errors"
+  ],
+  "title": "Envelope[Page[Signal]]",
+  "type": "object"
+}

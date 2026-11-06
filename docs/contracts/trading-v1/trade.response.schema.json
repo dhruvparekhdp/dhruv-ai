@@ -1,0 +1,255 @@
+{
+  "$defs": {
+    "ApiError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ApiError",
+      "type": "object"
+    },
+    "FeedStatus": {
+      "enum": [
+        "ok",
+        "degraded",
+        "unavailable"
+      ],
+      "title": "FeedStatus",
+      "type": "string"
+    },
+    "Mode": {
+      "description": "Execution stance the engine is reporting. Live is intentionally absent.",
+      "enum": [
+        "paper",
+        "shadow",
+        "research"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "Money": {
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "title": "Amount",
+          "type": "string"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3,10}$",
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "title": "Money",
+      "type": "object"
+    },
+    "Page_Trade_": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Trade"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Cursor"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "Page[Trade]",
+      "type": "object"
+    },
+    "Side": {
+      "enum": [
+        "buy",
+        "sell"
+      ],
+      "title": "Side",
+      "type": "string"
+    },
+    "SourceEngine": {
+      "enum": [
+        "crypto-signal-engine",
+        "nse-trade"
+      ],
+      "title": "SourceEngine",
+      "type": "string"
+    },
+    "Trade": {
+      "additionalProperties": false,
+      "properties": {
+        "closed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Closed At"
+        },
+        "fees": {
+          "$ref": "#/$defs/Money"
+        },
+        "id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/Mode"
+        },
+        "opened_at": {
+          "format": "date-time",
+          "title": "Opened At",
+          "type": "string"
+        },
+        "pnl": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Money"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "price": {
+          "$ref": "#/$defs/Money"
+        },
+        "qty": {
+          "pattern": "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "title": "Qty",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/Side"
+        },
+        "strategy": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Strategy",
+          "type": "string"
+        },
+        "symbol": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "symbol",
+        "side",
+        "qty",
+        "price",
+        "fees",
+        "opened_at",
+        "closed_at",
+        "pnl",
+        "strategy",
+        "mode"
+      ],
+      "title": "Trade",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "correlation_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/Page_Trade_"
+    },
+    "data_as_of": {
+      "format": "date-time",
+      "title": "Data As Of",
+      "type": "string"
+    },
+    "errors": {
+      "items": {
+        "$ref": "#/$defs/ApiError"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "is_stale": {
+      "title": "Is Stale",
+      "type": "boolean"
+    },
+    "mode": {
+      "$ref": "#/$defs/Mode"
+    },
+    "schema_version": {
+      "pattern": "^1\\.0$",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_engine": {
+      "$ref": "#/$defs/SourceEngine"
+    },
+    "status": {
+      "$ref": "#/$defs/FeedStatus"
+    }
+  },
+  "required": [
+    "source_engine",
+    "schema_version",
+    "generated_at",
+    "data_as_of",
+    "status",
+    "is_stale",
+    "mode",
+    "correlation_id",
+    "data",
+    "errors"
+  ],
+  "title": "Envelope[Page[Trade]]",
+  "type": "object"
+}

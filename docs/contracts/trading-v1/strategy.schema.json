@@ -1,0 +1,44 @@
+{
+  "$defs": {
+    "StrategyStatus": {
+      "enum": [
+        "active",
+        "paused",
+        "retired"
+      ],
+      "title": "StrategyStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "params_summary": {
+      "maxLength": 500,
+      "title": "Params Summary",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/StrategyStatus"
+    },
+    "version": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "status",
+    "params_summary"
+  ],
+  "title": "Strategy",
+  "type": "object"
+}

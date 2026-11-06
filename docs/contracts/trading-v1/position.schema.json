@@ -1,0 +1,77 @@
+{
+  "$defs": {
+    "Book": {
+      "enum": [
+        "MIS",
+        "CNC",
+        "spot",
+        "futures"
+      ],
+      "title": "Book",
+      "type": "string"
+    },
+    "Money": {
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "title": "Amount",
+          "type": "string"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3,10}$",
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "title": "Money",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "avg_price": {
+      "$ref": "#/$defs/Money"
+    },
+    "book": {
+      "$ref": "#/$defs/Book"
+    },
+    "mark_price": {
+      "$ref": "#/$defs/Money"
+    },
+    "opened_at": {
+      "format": "date-time",
+      "title": "Opened At",
+      "type": "string"
+    },
+    "qty": {
+      "pattern": "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+      "title": "Qty",
+      "type": "string"
+    },
+    "symbol": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Symbol",
+      "type": "string"
+    },
+    "unrealized_pnl": {
+      "$ref": "#/$defs/Money"
+    }
+  },
+  "required": [
+    "symbol",
+    "qty",
+    "avg_price",
+    "mark_price",
+    "unrealized_pnl",
+    "book",
+    "opened_at"
+  ],
+  "title": "Position",
+  "type": "object"
+}

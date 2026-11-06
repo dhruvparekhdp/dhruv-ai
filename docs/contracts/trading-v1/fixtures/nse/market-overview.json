@@ -1,0 +1,28 @@
+{
+  "source_engine": "nse-trade",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-06T11:59:31Z",
+  "data_as_of": "2026-11-06T11:59:30Z",
+  "status": "ok",
+  "is_stale": false,
+  "mode": "shadow",
+  "correlation_id": "corr-fixture-1",
+  "data": {
+    "venue": "nse",
+    "instruments_tracked": 3,
+    "highlights": [
+      {
+        "symbol": "RELIANCE",
+        "last": {
+          "amount": "1480.25",
+          "currency": "INR"
+        },
+        "change_pct": "-0.004"
+      }
+    ],
+    "details": {
+      "session": "cash"
+    }
+  },
+  "errors": []
+}

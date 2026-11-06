@@ -374,3 +374,26 @@ threshold is stale even when the payload says it is fresh — feeds cache the fl
 Credentials are an env-var name (or an injected secret source) read at call time.
 The value is placed on the request header and nowhere in the log line. httpx
 exception strings are not logged, because they can echo request headers.
+
+---
+
+## D-027 · trading-v1 is a read-only contract, not an order API
+
+`crypto-signal-engine` and `nse-trade` are other systems. This repo holds the
+shared envelope (`app/contracts/trading_v1/`) and two GET clients
+(`app/adapters/trading/`). Jarvis does not mount `/integration/v1`.
+
+`mode` is `paper`, `shadow`, or `research`. There is no live value, so a feed
+that claims live fails validation instead of being treated as a quieter paper
+read. Prices and quantities are decimal strings so a JSON number cannot round
+a fill. Money carries an explicit currency.
+
+`is_stale: true` and an old `data_as_of` both force a stale read. The JAR-011
+client looks at a field named `stale`; the trading client keeps that age check
+and also honors `is_stale`, and it returns the full envelope so `mode`,
+`errors`, and `source_engine` stay visible.
+
+The engine compares `Authorization: Bearer` with `INTEGRATION_API_TOKEN` using
+`hmac.compare_digest`, and an empty expected token fails closed. The clients
+read `CRYPTO_INTEGRATION_API_TOKEN` and `NSE_INTEGRATION_API_TOKEN` so the two
+feeds do not share one secret by accident.

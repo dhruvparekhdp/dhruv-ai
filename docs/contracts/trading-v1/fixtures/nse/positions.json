@@ -1,0 +1,34 @@
+{
+  "source_engine": "nse-trade",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-06T11:59:31Z",
+  "data_as_of": "2026-11-06T11:59:30Z",
+  "status": "ok",
+  "is_stale": false,
+  "mode": "shadow",
+  "correlation_id": "corr-fixture-1",
+  "data": {
+    "items": [
+      {
+        "symbol": "RELIANCE",
+        "qty": "10",
+        "avg_price": {
+          "amount": "1472.00",
+          "currency": "INR"
+        },
+        "mark_price": {
+          "amount": "1480.25",
+          "currency": "INR"
+        },
+        "unrealized_pnl": {
+          "amount": "82.50",
+          "currency": "INR"
+        },
+        "book": "CNC",
+        "opened_at": "2026-11-06T09:15:00Z"
+      }
+    ],
+    "next_cursor": null
+  },
+  "errors": []
+}

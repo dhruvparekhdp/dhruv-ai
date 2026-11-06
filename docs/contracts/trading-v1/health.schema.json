@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "FeedStatus": {
+      "enum": [
+        "ok",
+        "degraded",
+        "unavailable"
+      ],
+      "title": "FeedStatus",
+      "type": "string"
+    },
+    "HealthCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "default": "",
+          "maxLength": 300,
+          "title": "Detail",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FeedStatus"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "title": "HealthCheck",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Typed health body. Extra notes are strings in `details`, never numbers.",
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/HealthCheck"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "details": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Details",
+      "type": "object"
+    },
+    "service": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Service",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "service",
+    "version",
+    "checks"
+  ],
+  "title": "HealthData",
+  "type": "object"
+}
