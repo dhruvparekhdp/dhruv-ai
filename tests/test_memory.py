@@ -7,6 +7,8 @@ fake embedder standing in for the real one).
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from app.memory import search as memory_search
@@ -40,8 +42,18 @@ def test_write_updates_rather_than_duplicating(agents) -> None:
 
 
 def test_provenance_is_recorded(agents) -> None:
-    store.write("project", "stack", "FastAPI", source="agent:memory")
-    assert store.read("project", "stack")[0]["source"] == "agent:memory"
+    store.write(
+        "project", "stack", "FastAPI",
+        source="agent", source_ref="msn_42", confidence=0.9,
+    )
+    row = store.read("project", "stack")[0]
+    assert row["source"] == "agent"
+    assert row["source_ref"] == "msn_42"
+    assert row["confidence"] == pytest.approx(0.9)
+    assert row["sensitivity"] == "normal"
+    assert row["expires_at"] is None
+    assert row["created_at"]
+    assert row["supersedes"] is None
 
 
 def test_mission_scope_is_isolated(agents) -> None:
@@ -61,6 +73,104 @@ def test_validation(agents) -> None:
         store.write("user", "  ", "v")
     with pytest.raises(store.MemoryError_, match="exceeds"):
         store.write("user", "k", "x" * (store.MAX_VALUE_CHARS + 1))
+
+
+def test_correction_supersedes_and_retrieval_returns_the_current_version(agents) -> None:
+    """A correction keeps the old row, linked, and reads return only the new one."""
+    first = store.write("user", "city", "Pune", source="user", source_ref="msg_1")
+    second = store.write(
+        "user", "city", "Bangalore",
+        source="agent", source_ref="msn_1", confidence=0.6, sensitivity="private",
+    )
+
+    assert second["entry_id"] != first["entry_id"]
+    assert second["supersedes"] == first["entry_id"]
+    assert second["value"] == "Bangalore"
+    assert second["sensitivity"] == "private"
+
+    previous = store.get(first["entry_id"])
+    assert previous is not None
+    assert previous["value"] == "Pune"
+    assert previous["superseded_by"] == second["entry_id"]
+
+    current = store.read("user", "city")
+    assert [row["entry_id"] for row in current] == [second["entry_id"]]
+    assert store.list_all()[0]["value"] == "Bangalore"
+    assert store.stats()["total"] == 1
+
+    found = memory_search.search("Pune")
+    assert all(row["value"] != "Pune" for row in found["results"])
+    assert memory_search.search("Bangalore")["results"][0]["entry_id"] == second["entry_id"]
+
+
+def test_expired_entries_are_hidden_and_purged(agents) -> None:
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    future = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+
+    expired = store.write("user", "city", "Pune", expires_at=past)
+    store.write("user", "city", "old name", expires_at=past)  # superseded, also due
+    kept = store.write("user", "coffee", "two cups", expires_at=future)
+
+    assert store.read("user", "city") == []
+    assert store.get(expired["entry_id"])["value"] == "Pune"
+    assert all(row["mem_key"] != "city" for row in memory_search.search("Pune")["results"])
+
+    removed = store.purge_expired()
+    assert removed >= 2
+    assert store.get(expired["entry_id"]) is None
+    assert store.get(kept["entry_id"])["value"] == "two cups"
+    assert store.read("user", "coffee")[0]["value"] == "two cups"
+
+    audits = store.list_audit()
+    assert audits
+    assert {row["action"] for row in audits} == {"purge"}
+    dumped = " ".join(row["mem_key"] + row["action"] for row in audits)
+    assert "Pune" not in dumped
+    assert "two cups" not in dumped
+
+
+def test_secrets_are_rejected_and_not_stored(agents) -> None:
+    from app.core.db import fetch_all, get_conn
+
+    secret = "password=hunter2-not-a-real-password"
+    with pytest.raises(store.MemoryError_, match="secrets are not kept") as raised:
+        store.write("user", "note", secret)
+    assert "hunter2" not in str(raised.value)
+
+    with pytest.raises(store.MemoryError_, match="secrets are not kept"):
+        store.write("user", "api_key", "not-a-labeled-value")
+    with pytest.raises(store.MemoryError_, match="secrets are not kept"):
+        store.write("user", "login", "Authorization: Bearer fake-auth-token-xyz")
+    with pytest.raises(store.MemoryError_, match="secrets are not kept"):
+        store.write("user", "otp", "totp=654321")
+
+    # Ordinary prose that merely mentions the word is still a fact.
+    store.write("user", "habit", "uses a password manager")
+    assert store.read("user", "habit")[0]["value"] == "uses a password manager"
+
+    with get_conn() as conn:
+        rows = fetch_all(conn, "SELECT mem_key, value FROM memory_entries", ())
+        audits = fetch_all(conn, "SELECT mem_key, action FROM memory_audit", ())
+    blob = " ".join(f"{row['mem_key']} {row['value']}" for row in rows)
+    blob += " ".join(f"{row['mem_key']} {row['action']}" for row in audits)
+    for leaked in ("hunter2-not-a-real-password", "fake-auth-token-xyz", "654321"):
+        assert leaked not in blob
+
+
+def test_delete_removes_the_chain_and_writes_an_audit_event(agents) -> None:
+    first = store.write("user", "city", "Pune")
+    second = store.write("user", "city", "Bangalore")
+
+    assert store.delete_by_id(first["entry_id"]) is True
+    assert store.get(first["entry_id"]) is None
+    assert store.get(second["entry_id"]) is None
+    assert store.read("user", "city") == []
+    assert store.delete_by_id(first["entry_id"]) is False
+
+    audits = store.list_audit()
+    assert {row["action"] for row in audits} == {"delete"}
+    assert {row["entry_id"] for row in audits} == {first["entry_id"], second["entry_id"]}
+    assert all("Pune" not in row["mem_key"] and "Bangalore" not in row["mem_key"] for row in audits)
 
 
 def test_update_and_delete_by_id(agents) -> None:
@@ -263,8 +373,15 @@ def test_memory_api_crud(client) -> None:
 
     updated = client.put(f"/api/v1/memory/{entry_id}", json={"value": "Bangalore"})
     assert updated.status_code == 200
-    assert updated.json()["entry"]["value"] == "Bangalore"
+    body = updated.json()["entry"]
+    assert body["value"] == "Bangalore"
+    assert body["supersedes"] == entry_id
+    listing = client.get("/api/v1/memory").json()
+    assert listing["count"] == 1
+    assert listing["entries"][0]["value"] == "Bangalore"
 
+    # Deleting the id the client first received still forgets the fact,
+    # including the correction that replaced it.
     assert client.delete(f"/api/v1/memory/{entry_id}").status_code == 200
     assert client.delete(f"/api/v1/memory/{entry_id}").status_code == 404
     assert client.get("/api/v1/memory").json()["count"] == 0
@@ -277,6 +394,29 @@ def test_memory_api_search(client) -> None:
     found = client.get("/api/v1/memory/search?q=coffee").json()
     assert found["results"][0]["mem_key"] == "coffee"
     assert "methods" in found
+
+
+def test_memory_api_rejects_a_secret_without_echoing_it(client) -> None:
+    secret = "api_key=sk-test-fake-token-0000"
+    response = client.post("/api/v1/memory", json={"scope": "user", "key": "note", "value": secret})
+    assert response.status_code == 400
+    assert "sk-test-fake-token-0000" not in response.text
+    assert client.get("/api/v1/memory").json()["count"] == 0
+
+
+def test_memory_retention_endpoint_purges_expired_entries(client) -> None:
+    past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    created = client.post(
+        "/api/v1/memory",
+        json={"scope": "user", "key": "trip", "value": "already over", "expires_at": past},
+    )
+    assert created.status_code == 201
+    assert client.get("/api/v1/memory").json()["count"] == 0
+
+    purged = client.post("/api/v1/memory/retention")
+    assert purged.status_code == 200
+    assert purged.json()["purged"] == 1
+    assert client.get("/api/v1/memory").json()["count"] == 0
 
 
 def test_memory_api_validation_and_auth(client) -> None:

@@ -193,8 +193,9 @@ parameter, because browsers can't set headers on a WS handshake.
 | `GET` | `/api/v1/memory` | Browse stored facts. |
 | `GET` | `/api/v1/memory/search` | Hybrid search. |
 | `POST` | `/api/v1/memory` | Store a fact. |
-| `PUT` | `/api/v1/memory/{id}` | Correct a fact. |
-| `DELETE` | `/api/v1/memory/{id}` | Delete a fact. |
+| `PUT` | `/api/v1/memory/{id}` | Correct a fact. The correction is a new entry; retrieval returns that version. |
+| `DELETE` | `/api/v1/memory/{id}` | Hard-delete a fact and the versions it replaced. Writes an audit event. |
+| `POST` | `/api/v1/memory/retention` | Purge entries whose `expires_at` has passed. |
 | `WS` | `/ws/logs` | Live telemetry stream. |
 
 This contract is frozen — the Phase 2 dashboard is built against it, so the vanilla PWA in

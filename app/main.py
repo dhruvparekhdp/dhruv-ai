@@ -111,6 +111,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             "Using SQLite. On an ephemeral host this database is wiped on every "
             "restart; set DATABASE_URL to a Postgres instance to keep telemetry."
         )
+
+    purged = memory_store.purge_expired()
+    if purged:
+        log.info("purged %d expired memory entry(ies)", purged)
     yield
 
 
@@ -178,6 +182,10 @@ class MemoryWriteRequest(BaseModel):
     scope: str = Field(default="user", max_length=16)
     key: str = Field(min_length=1, max_length=200)
     value: str = Field(min_length=1, max_length=4000)
+    source_ref: str = Field(default="", max_length=128)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    sensitivity: str = Field(default="normal", max_length=16)
+    expires_at: str | None = Field(default=None, max_length=40)
 
 
 class MemoryUpdateRequest(BaseModel):
@@ -539,7 +547,14 @@ async def search_memory(
 @app.post("/api/v1/memory", tags=["memory"], status_code=status.HTTP_201_CREATED)
 async def write_memory(req: MemoryWriteRequest, _: Guarded) -> dict[str, Any]:
     try:
-        entry = memory_store.write(req.scope, req.key, req.value, source="user")
+        entry = memory_store.write(
+            req.scope, req.key, req.value,
+            source="user",
+            source_ref=req.source_ref,
+            confidence=req.confidence,
+            sensitivity=req.sensitivity,
+            expires_at=req.expires_at,
+        )
     except memory_store.MemoryError_ as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return {"status": "success", "entry": entry}
@@ -566,6 +581,12 @@ async def delete_memory(entry_id: str, _: Guarded) -> dict[str, Any]:
     if not memory_store.delete_by_id(entry_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown entry_id.")
     return {"status": "success", "entry_id": entry_id}
+
+
+@app.post("/api/v1/memory/retention", tags=["memory"])
+async def purge_memory(_: Guarded) -> dict[str, Any]:
+    """Run the retention job: hard-delete entries whose expires_at has passed."""
+    return {"status": "success", "purged": memory_store.purge_expired()}
 
 
 # --------------------------------------------------------------------------
