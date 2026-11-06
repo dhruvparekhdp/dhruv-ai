@@ -30,6 +30,7 @@ from app.core.db import execute, fetch_all, fetch_one, is_postgres
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 _UP_NAME = re.compile(r"^(\d{4})_(.+)\.up\.sql$")
+_PY_HOOK = re.compile(r"^-- migrate-python:([a-z_][a-z0-9_]*)$")
 _BOOKKEEPING = "agy_schema_migrations"
 
 
@@ -185,10 +186,63 @@ def applied_versions() -> list[str]:
 def _apply(conn, script: str) -> None:
     # SQLite autocommits DDL unless a transaction is already open. The version
     # row is inserted by the caller in this same transaction.
-    if not is_postgres() and conn.in_transaction is False:
+    if not is_postgres() and getattr(conn, "in_transaction", False) is False:
         conn.execute("BEGIN")
-    for statement in _statements(script):
-        conn.execute(statement)
+    buffer: list[str] = []
+
+    def flush() -> None:
+        kept = [line for line in buffer if not line.strip().startswith("--")]
+        buffer.clear()
+        for chunk in "\n".join(kept).split(";"):
+            statement = chunk.strip()
+            if statement:
+                conn.execute(statement)
+
+    for line in script.splitlines():
+        match = _PY_HOOK.match(line.strip())
+        if match is None:
+            buffer.append(line)
+            continue
+        flush()
+        from agency.status_migrate import HOOKS
+
+        hook = HOOKS.get(match.group(1))
+        if hook is None:
+            raise RuntimeError(f"Unknown migration hook '{match.group(1)}'.")
+        hook(conn)
+    flush()
+
+
+def _run_script(conn, script: str) -> None:
+    """Apply one script. A ``sqlite-fk:off`` marker rebuilds tables safely.
+
+    SQLite will not change ``foreign_keys`` inside a transaction, and the
+    documented table rebuild refuses to drop a table that other rows point
+    at while enforcement is on. The marker commits work that is already
+    applied, turns enforcement off for this script, then commits this script
+    with its bookkeeping change and turns enforcement back on.
+    """
+    relax = (not is_postgres()) and "sqlite-fk:off" in script
+    if relax and getattr(conn, "in_transaction", False):
+        conn.commit()
+    if relax:
+        conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        _apply(conn, script)
+    except Exception:
+        if relax and getattr(conn, "in_transaction", False):
+            conn.rollback()
+        if relax:
+            conn.execute("PRAGMA foreign_keys=ON")
+        raise
+
+
+def _finish_script(conn, script: str) -> None:
+    if is_postgres() or "sqlite-fk:off" not in script:
+        return
+    if getattr(conn, "in_transaction", False):
+        conn.commit()
+    conn.execute("PRAGMA foreign_keys=ON")
 
 
 def migrate_up(target: str | None = None) -> list[str]:
@@ -210,12 +264,14 @@ def migrate_up(target: str | None = None) -> list[str]:
                 continue
             if target is not None and migration.version > target:
                 break
-            _apply(conn, migration.up_path.read_text(encoding="utf-8"))
+            script = migration.up_path.read_text(encoding="utf-8")
+            _run_script(conn, script)
             execute(
                 conn,
                 f"INSERT INTO {_BOOKKEEPING} (version, name, applied_at) VALUES (?, ?, ?)",
                 (migration.version, migration.name, _now()),
             )
+            _finish_script(conn, script)
             applied.append(migration.version)
     return applied
 
@@ -244,8 +300,10 @@ def migrate_down(steps: int | None = None) -> list[str]:
             migration = by_version.get(version)
             if migration is None:
                 raise RuntimeError(f"Applied migration {version} has no script on disk.")
-            _apply(conn, migration.down_path.read_text(encoding="utf-8"))
+            script = migration.down_path.read_text(encoding="utf-8")
+            _run_script(conn, script)
             execute(conn, f"DELETE FROM {_BOOKKEEPING} WHERE version = ?", (version,))
+            _finish_script(conn, script)
             reverted.append(version)
         remaining = fetch_all(conn, f"SELECT version FROM {_BOOKKEEPING}")
         if not remaining:

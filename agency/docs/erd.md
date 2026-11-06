@@ -44,6 +44,8 @@ erDiagram
     Campaign ||--o{ ContentItem : "may group"
     ContentItem ||--o{ ContentItem : "duplicated as a new draft"
     ContentItem ||--o{ ContentRevision : revises
+    Brand ||--o{ Approver : "may approve"
+    Approver ||--o{ Approval : decides
     Brand ||--o{ CalendarSlot : scopes
     Channel ||--o{ CalendarSlot : schedules
     ContentItem ||--o{ CalendarSlot : fills
@@ -151,12 +153,17 @@ erDiagram
         text campaign_id FK
         text source_item_id FK "copy link, own brand_id"
         text status
+        text published_url "manual mark"
+        text published_on "manual mark"
     }
     ContentRevision {
         text id PK
         text brand_id FK "NOT NULL"
         text content_item_id FK
         int revision_no
+        text author
+        text title
+        text body
     }
     CalendarSlot {
         text id PK
@@ -170,7 +177,14 @@ erDiagram
         text brand_id FK "NOT NULL"
         text subject_type
         text subject_id "no FK"
+        text approver_id FK
         text status
+    }
+    Approver {
+        text id PK
+        text brand_id FK "NOT NULL"
+        text name
+        text email
     }
     KPIDefinition {
         text id PK
