@@ -165,7 +165,8 @@ parameter, because browsers can't set headers on a WS handshake.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | Liveness, engine + storage state. **Unauthenticated** (for uptime probes). |
+| `GET` | `/health` | Liveness, plus the engine and storage state the PWA already reads. **Unauthenticated**. |
+| `GET` | `/ready` | Readiness: database, scheduler, and which integrations are configured. **Unauthenticated**. |
 | `GET` | `/api/v1/greeting` | Time-aware greeting and the mood scale. |
 | `POST` | `/api/v1/session/start` | Mint a session id. |
 | `GET` | `/api/v1/session/{id}` | Cheap existence check. |

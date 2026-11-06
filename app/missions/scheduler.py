@@ -18,6 +18,7 @@ from typing import Any
 
 from app.agents.registry import DEFAULT_AGENT_ID, registry as agent_registry
 from app.agents.runner import AgentRunner
+from app.core.correlation import bind_mission, current_correlation_id
 from app.missions import store
 from app.missions.models import (
     ApprovalDecision,
@@ -56,19 +57,24 @@ class MissionScheduler:
             session_id=session_id,
             budget=budget or Budget(),
             status=MissionStatus.PLANNING,
+            correlation_id=current_correlation_id(),
         )
-        store.create_mission(mission)
-        store.log_message(
-            mission_id=mission.mission_id,
-            sender="user",
-            receiver="orchestrator",
-            action="mission.create",
-            payload={"goal": goal},
-        )
-        await ws_manager.broadcast(
-            "mission", f"Mission created: {goal[:80]}",
-            mission_id=mission.mission_id, status=mission.status.value,
-        )
+        # Bind the mission id so the create audit row and the log line carry
+        # both ids. The request's correlation id is already set by middleware.
+        with bind_mission(mission.mission_id):
+            store.create_mission(mission)
+            store.log_message(
+                mission_id=mission.mission_id,
+                sender="user",
+                receiver="orchestrator",
+                action="mission.create",
+                payload={"goal": goal},
+            )
+            log.info("mission created")
+            await ws_manager.broadcast(
+                "mission", f"Mission created: {goal[:80]}",
+                mission_id=mission.mission_id, status=mission.status.value,
+            )
         return mission
 
     def start(self, mission_id: str) -> None:
@@ -111,6 +117,14 @@ class MissionScheduler:
         if mission is None:
             return
 
+        # The background task outlives the request. Re-bind the id that was
+        # stored with the mission so later logs still name that request.
+        with bind_mission(mission_id, mission.correlation_id):
+            log.info("mission started")
+            await self._run_mission_body(mission, started)
+
+    async def _run_mission_body(self, mission: Mission, started: float) -> None:
+        mission_id = mission.mission_id
         try:
             tasks = store.list_tasks(mission_id)
             if not tasks:
@@ -120,6 +134,8 @@ class MissionScheduler:
                     runner=self.runner,
                     budget=mission.budget,
                 )
+                for task in tasks:
+                    task.correlation_id = mission.correlation_id
                 store.create_tasks(tasks)
                 store.log_message(
                     mission_id=mission_id,
@@ -252,6 +268,7 @@ class MissionScheduler:
 
         store.lease_task(task.task_id, LEASE_SECONDS)
         store.update_task(task.task_id, attempts=task.attempts + 1)
+        log.info("task dispatched agent=%s task=%s", definition.id, task.task_id)
         store.log_message(
             mission_id=mission.mission_id,
             task_id=task.task_id,
