@@ -36,6 +36,7 @@ _TABLES = (
     "nodes", "node_enrolments", "todos", "todo_tracks",
     # Agency tables. CASCADE makes order irrelevant on Postgres; children are
     # listed first anyway so a future drop without CASCADE still works.
+    "agy_access_items", "agy_brand_profiles",
     "agy_estimate_lines", "agy_estimates", "agy_service_templates",
     "agy_research_notes", "agy_competitors", "agy_metric_entries",
     "agy_kpi_definitions", "agy_approvals", "agy_calendar_slots",

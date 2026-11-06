@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, fields
+from dataclasses import field as dc_field
 from datetime import date, datetime
 from enum import Enum
 from typing import Any
@@ -24,6 +25,9 @@ from typing import Any
 # Lengths shared with the Pydantic schemas so the HTTP layer and the store
 # cannot drift apart.
 NAME_MAX = 200
+PROFILE_LIST_MAX = 30
+WORD_MAX = 80
+SAMPLE_POST_MAX = 4000
 SLUG_MAX = 80
 NOTES_MAX = 4000
 TITLE_MAX = 300
@@ -64,6 +68,8 @@ BRAND_SCOPED_TABLES: tuple[str, ...] = (
     "agy_service_templates",
     "agy_estimates",
     "agy_estimate_lines",
+    "agy_brand_profiles",
+    "agy_access_items",
 )
 
 # The invariant called out by name: content, project and campaign records.
@@ -212,6 +218,33 @@ class EstimateStatus(str, Enum):
     ACCEPTED = "accepted"
     DECLINED = "declined"
     EXPIRED = "expired"
+
+
+class AccessPlatform(str, Enum):
+    """A platform the checklist can name. The row stores a status, never a login."""
+
+    LINKEDIN = "linkedin"
+    INSTAGRAM = "instagram"
+    X = "x"
+    YOUTUBE = "youtube"
+    FACEBOOK = "facebook"
+    TIKTOK = "tiktok"
+    BLOG = "blog"
+    NEWSLETTER = "newsletter"
+    GOOGLE_ANALYTICS = "google_analytics"
+    META_ADS = "meta_ads"
+    GOOGLE_ADS = "google_ads"
+    WEBSITE = "website"
+    EMAIL = "email"
+    OTHER = "other"
+
+
+class AccessStatus(str, Enum):
+    """Whether access was asked for. ``granted`` is a label, not a credential."""
+
+    REQUESTED = "requested"
+    GRANTED = "granted"
+    NOT_NEEDED = "not_needed"
 
 
 def new_id(prefix: str) -> str:
@@ -530,6 +563,44 @@ class Estimate(Model):
 
 
 @dataclass
+class BrandProfile(Model):
+    """Onboarding profile for one brand. Lists are JSON on the row.
+
+    ``services_bought`` names work the client already bought. It is not an
+    order and it does not charge anything.
+    """
+
+    id: str
+    brand_id: str
+    goals: str = ""
+    audience: str = ""
+    positioning: str = ""
+    voice_description: str = ""
+    words_to_use: list[str] = dc_field(default_factory=list)
+    words_to_avoid: list[str] = dc_field(default_factory=list)
+    sample_posts: list[str] = dc_field(default_factory=list)
+    competitors: list[dict[str, str]] = dc_field(default_factory=list)
+    active_channels: list[dict[str, str]] = dc_field(default_factory=list)
+    approval_contacts: list[dict[str, str]] = dc_field(default_factory=list)
+    services_bought: list[dict[str, str]] = dc_field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass
+class AccessItem(Model):
+    """One platform on the access checklist. Status and notes only."""
+
+    id: str
+    brand_id: str
+    platform: AccessPlatform
+    status: AccessStatus = AccessStatus.REQUESTED
+    notes: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass
 class EstimateLine(Model):
     id: str
     brand_id: str
@@ -567,4 +638,6 @@ BRAND_SCOPED_MODELS: tuple[type[Model], ...] = (
     ServiceTemplate,
     Estimate,
     EstimateLine,
+    BrandProfile,
+    AccessItem,
 )
