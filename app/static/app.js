@@ -3,14 +3,19 @@
  * No framework, no build step — this ships as-is and installs to the iPhone
  * home screen. Phase 2 replaces it with Ionic + Angular against the same API.
  *
- * The passcode lives in localStorage: sent as a header on REST calls, and as a
- * query parameter on the WebSocket (browsers can't set headers on a WS
- * handshake).
+ * The passcode is exchanged once for a session token, which lives in
+ * localStorage: sent as a bearer token on REST calls, and as a query
+ * parameter on the WebSocket (browsers can't set headers on a WS handshake).
+ * The passcode itself is not stored.
  */
 
 (() => {
   "use strict";
 
+  const TOKEN_KEY = "jarvis.token";
+  const TOKEN_EXPIRES_KEY = "jarvis.token_expires";
+  // Older builds stored the passcode itself. It is exchanged for a token on
+  // the next load and then removed.
   const PASSCODE_KEY = "jarvis.passcode";
   const SESSION_KEY = "jarvis.session";
 
@@ -22,6 +27,7 @@
     moodTrend: $("mood-trend"), trendBars: $("trend-bars"), trendAvg: $("trend-avg"),
     messages: $("messages"), chatForm: $("chat-form"), chatInput: $("chat-input"),
     logsToggle: $("logs-toggle"), logsPanel: $("logs-panel"), logs: $("logs"),
+    logoutBtn: $("logout-btn"),
     stats: $("stats"), exportBtn: $("export-btn"),
     engineBadge: $("engine-badge"), storageBadge: $("storage-badge"),
     missionForm: $("mission-form"), missionInput: $("mission-input"), missionList: $("mission-list"),
@@ -32,10 +38,11 @@
     memoryNewKey: $("memory-new-key"), memoryNewValue: $("memory-new-value"),
   };
 
-  let passcode = localStorage.getItem(PASSCODE_KEY) || "";
+  let token = localStorage.getItem(TOKEN_KEY) || "";
   let sessionId = null;
   let selectedMood = null;
   let socket = null;
+  let keepSocket = false;
 
   // ---------------------------------------------------------------- utils
 
@@ -43,12 +50,16 @@
     String(s).replace(/[&<>"']/g, (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+  function authHeaders() {
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
   async function api(path, { method = "GET", body } = {}) {
     const res = await fetch(path, {
       method,
       headers: {
         "Content-Type": "application/json",
-        ...(passcode ? { "X-Jarvis-Passcode": passcode } : {}),
+        ...authHeaders(),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -56,6 +67,11 @@
     if (res.status === 401) {
       const err = new Error("Unauthorized");
       err.unauthorized = true;
+      throw err;
+    }
+    if (res.status === 429) {
+      const err = new Error("Too many attempts. Try again in a little while.");
+      err.locked = true;
       throw err;
     }
     if (!res.ok) {
@@ -79,23 +95,66 @@
     el.lockInput.focus();
   }
 
+  function clearToken() {
+    token = "";
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXPIRES_KEY);
+    localStorage.removeItem(PASSCODE_KEY);
+    stopSocket();
+  }
+
+  async function login(candidate) {
+    const res = await fetch("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passcode: candidate }),
+    });
+    if (res.status === 429) {
+      const err = new Error("Too many attempts. Try again in a little while.");
+      err.locked = true;
+      throw err;
+    }
+    if (res.status === 401) {
+      const err = new Error("Unauthorized");
+      err.unauthorized = true;
+      throw err;
+    }
+    if (!res.ok) throw new Error(`Couldn't reach Jarvis (${res.status})`);
+    const data = await res.json();
+    token = data.token || "";
+    localStorage.setItem(TOKEN_KEY, token);
+    if (data.expires_at) localStorage.setItem(TOKEN_EXPIRES_KEY, data.expires_at);
+    localStorage.removeItem(PASSCODE_KEY);
+    return data;
+  }
+
   el.lockForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const candidate = el.lockInput.value.trim();
     if (!candidate) return;
-    passcode = candidate;
     el.lockError.textContent = "";
     try {
-      await api("/api/v1/greeting");
-      localStorage.setItem(PASSCODE_KEY, passcode);
+      await login(candidate);
       el.lock.classList.add("hidden");
       el.app.classList.remove("hidden");
       await boot();
     } catch (err) {
-      passcode = "";
-      localStorage.removeItem(PASSCODE_KEY);
-      showLock(err.unauthorized ? "Wrong passcode." : `Couldn't reach Jarvis: ${err.message}`);
+      clearToken();
+      const message = err.locked
+        ? err.message
+        : err.unauthorized
+          ? "Wrong passcode."
+          : `Couldn't reach Jarvis: ${err.message}`;
+      showLock(message);
     }
+  });
+
+  el.logoutBtn.addEventListener("click", async () => {
+    try {
+      await api("/api/v1/auth/logout", { method: "POST" });
+    } catch (_) { /* drop the local token either way */ }
+    clearToken();
+    showLock();
   });
 
   // ------------------------------------------------------------- messages
@@ -535,12 +594,23 @@
     el.logs.scrollTop = el.logs.scrollHeight;
   }
 
-  function connectSocket() {
-    const scheme = location.protocol === "https:" ? "wss" : "ws";
-    const url = `${scheme}://${location.host}/ws/logs?passcode=${encodeURIComponent(passcode)}`;
+  function stopSocket() {
+    keepSocket = false;
+    if (!socket) return;
+    const current = socket;
+    socket = null;
+    current.close();
+  }
 
-    socket = new WebSocket(url);
-    socket.addEventListener("message", (evt) => {
+  function connectSocket() {
+    if (!keepSocket) return;
+    const scheme = location.protocol === "https:" ? "wss" : "ws";
+    const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+    const url = `${scheme}://${location.host}/ws/logs${qs}`;
+
+    const current = new WebSocket(url);
+    socket = current;
+    current.addEventListener("message", (evt) => {
       try {
         const data = JSON.parse(evt.data);
         pushLog(data.event || "system", data.message || "");
@@ -551,11 +621,12 @@
         pushLog("system", evt.data);
       }
     });
-    socket.addEventListener("close", () => {
+    current.addEventListener("close", () => {
+      if (!keepSocket) return;
       pushLog("system", "Log stream disconnected — retrying in 5s.");
       setTimeout(connectSocket, 5000);
     });
-    socket.addEventListener("error", () => socket.close());
+    current.addEventListener("error", () => current.close());
   }
 
   el.logsToggle.addEventListener("click", () => {
@@ -564,10 +635,10 @@
   });
 
   el.exportBtn.addEventListener("click", async () => {
-    // fetch (not a plain link) so the passcode header travels with the request.
+    // fetch (not a plain link) so the session token travels with the request.
     el.exportBtn.disabled = true;
     try {
-      const res = await fetch("/api/v1/dataset/export", { headers: { "X-Jarvis-Passcode": passcode } });
+      const res = await fetch("/api/v1/dataset/export", { headers: authHeaders() });
       if (!res.ok) throw new Error(`Export failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -649,6 +720,7 @@
       }
 
       el.subtitle.textContent = "Jarvis is listening.";
+      keepSocket = true;
       connectSocket();
       loadTrend();
       refreshStats();
@@ -656,21 +728,41 @@
       renderScopeChips();
       loadMemory();
     } catch (err) {
-      if (err.unauthorized) { showLock("Session expired — enter your passcode."); return; }
+      if (err.unauthorized) {
+        clearToken();
+        showLock("Session expired — enter your passcode.");
+        return;
+      }
       el.subtitle.textContent = `Couldn't connect: ${err.message}`;
     }
   }
 
   async function start() {
-    // Probe auth: a passcode-less server lets anyone through, in which case
-    // the lock screen would be pointless friction.
+    // A build that stored the passcode exchanges it once, then forgets it.
+    const legacy = localStorage.getItem(PASSCODE_KEY);
+    if (!token && legacy) {
+      try {
+        await login(legacy);
+      } catch (_) {
+        localStorage.removeItem(PASSCODE_KEY);
+      }
+    }
+    // Probe auth: the loopback dev exception lets anyone through, in which
+    // case the lock screen would be pointless friction.
     try {
       await api("/api/v1/greeting");
       el.app.classList.remove("hidden");
       await boot();
     } catch (err) {
-      if (err.unauthorized) showLock();
-      else { el.app.classList.remove("hidden"); el.subtitle.textContent = `Couldn't connect: ${err.message}`; }
+      if (err.unauthorized) {
+        clearToken();
+        showLock();
+      } else if (err.locked) {
+        showLock(err.message);
+      } else {
+        el.app.classList.remove("hidden");
+        el.subtitle.textContent = `Couldn't connect: ${err.message}`;
+      }
     }
   }
 

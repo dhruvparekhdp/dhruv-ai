@@ -37,8 +37,11 @@ replaced by a framework later without touching the backend.
 
 A single constant-time-compared `JARVIS_PASSCODE` on every `/api/v1/*` route and the WebSocket
 handshake. Small, and enough to keep a publicly reachable URL from being open to anyone who finds it.
+The passcode is exchanged for an expiring session token (D-026). The header still works, so the
+MCP server and existing curl snippets keep functioning, and it shares the login lockout.
 
-`/health` reports `auth_enabled`, so an unprotected instance is visible rather than silent.
+`/health` reports `auth_enabled`, so an unprotected instance is visible rather than silent. An
+unset passcode no longer means "open": the process refuses to start (D-026).
 
 ---
 
@@ -354,3 +357,33 @@ lease that has not actually lapsed, and duplicate work.
 
 `chrony` on every node, installed by the provisioning playbook. Cheap insurance against a whole
 class of distributed-systems bug.
+
+---
+
+## D-026 · The process refuses to run open
+
+D-004 left an unset `JARVIS_PASSCODE` as "auth off", and the host unit bound `0.0.0.0`. Both are
+how a personal assistant ends up reachable with no gate: a missed env var, or a copied unit file.
+
+- **No passcode, no process.** Startup raises before the database is opened and before a socket
+  accepts `/health`. The only exception is `JARVIS_DEV_INSECURE=1` **and** a loopback bind, which
+  logs a banner that authentication is disabled.
+- **Loopback is the default.** `JARVIS_HOST` defaults to `127.0.0.1`, and `python -m app` binds
+  that. `uvicorn --host 0.0.0.0` is the address that is actually checked, and it is refused unless
+  `JARVIS_ALLOW_PUBLIC_BIND=1`. Tailscale Funnel proxies to localhost, so the host does not need
+  to listen on every interface.
+- **The passcode is hashed, then compared** with `hmac.compare_digest`, so a short guess cannot
+  return early on length. Failed attempts — login body or `X-Jarvis-Passcode` header — share one
+  counter. This is a single-user system; a per-IP bucket would let an attacker rotate around it.
+  After N failures (default 5) the door locks, backing off from 30 seconds up to 15 minutes. A
+  correct passcode does not skip the window. A session that was already issued keeps working.
+- **Sessions expire.** `POST /api/v1/auth/login` returns a bearer token (default 12 hours,
+  `JARVIS_SESSION_TTL_SECONDS`). `POST /api/v1/auth/logout` revokes it. The PWA stores the token,
+  not the passcode. The passcode header remains valid so existing clients do not break, and it is
+  the credential logout does not erase.
+
+Sessions and the lockout are in memory. A crash drops both. Sessions fail closed (log in again).
+Resetting the lockout requires restarting the process, which a remote attacker cannot do.
+
+The static shell (`/`, `/static/*`, the manifest, the service worker) stays unauthenticated so the
+lock screen can load. `/health` stays unauthenticated for uptime probes.

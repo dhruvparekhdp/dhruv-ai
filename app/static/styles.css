@@ -70,6 +70,7 @@ html, body {
 
 .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .topbar-main { min-width: 0; }
+.topbar-actions { display: flex; gap: 8px; }
 .topbar h1 { margin: 0; font-size: 24px; letter-spacing: -0.5px; }
 .subtitle { margin: 4px 0 0; color: var(--text-dim); font-size: 14px; }
 

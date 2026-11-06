@@ -60,6 +60,8 @@ Breaking any of these is a bug, not a refactor:
 ```bash
 pip install -r requirements-dev.txt
 JARVIS_PASSCODE=dev uvicorn app.main:app --reload      # http://127.0.0.1:8000, passcode "dev"
+# Unset JARVIS_PASSCODE refuses to start. `python -m app` binds 127.0.0.1.
+# `uvicorn --host 0.0.0.0` also needs JARVIS_ALLOW_PUBLIC_BIND=1.
 
 pytest -q                                              # SQLite (default)
 JARVIS_TEST_DATABASE_URL=postgresql://... pytest -q     # Postgres — run before touching storage
@@ -132,7 +134,9 @@ drills/                    debugging drills: planted bugs + a runner (see drills
 
 Phases 1 and 2 are done: chat, mood check-ins, telemetry flywheel, PWA, and the full orchestration
 substrate (missions, agents, tools, permissions, approvals, budgets, crash recovery).
-**150 tests, passing on SQLite and Postgres 16.**
+**Tests passing on SQLite and Postgres 16.** The suite refuses to boot without a passcode, returns
+401 on every protected route without a credential, locks login after repeated failures, and rejects
+expired session tokens.
 
 **Next: Phase 3** — node protocol and the PC node agent, running on the host laptop.
 

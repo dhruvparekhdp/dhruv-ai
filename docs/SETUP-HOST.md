@@ -214,7 +214,10 @@ Type=simple
 User=$USER
 WorkingDirectory=$HOME/jarvis
 EnvironmentFile=$HOME/jarvis/.env
-ExecStart=$HOME/jarvis/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Binds 127.0.0.1:8000 unless .env says otherwise. Funnel reaches that.
+# Listening on every interface also needs JARVIS_ALLOW_PUBLIC_BIND=1 and
+# JARVIS_HOST=0.0.0.0 in the env file. An unset JARVIS_PASSCODE refuses to start.
+ExecStart=$HOME/jarvis/.venv/bin/python -m app
 Restart=always
 RestartSec=5
 

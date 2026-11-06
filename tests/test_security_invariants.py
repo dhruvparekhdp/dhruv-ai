@@ -35,6 +35,10 @@ def test_passcode_is_compared_in_constant_time() -> None:
     assert "hmac.compare_digest" in source, (
         "The passcode must be compared with hmac.compare_digest, not ==."
     )
+    # compare_digest returns as soon as the lengths differ. Hashing both sides
+    # first makes the inputs equal length, so a short guess cannot leak the
+    # secret one byte at a time.
+    assert "sha256" in source, "Hash the passcode before compare_digest so length cannot leak."
 
 
 def test_secrets_are_never_stored_in_clear() -> None:

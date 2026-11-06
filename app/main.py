@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, AsyncIterator
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -30,7 +30,19 @@ from app.agent import prompts
 from app.agent.orchestrator import orchestrator
 from app.agents.registry import registry as agent_registry
 from app.core.config import get_settings
-from app.core.security import check_passcode, require_passcode
+from app.core.security import (
+    TOKEN_HEADER,
+    AuthGateMiddleware,
+    StartupRefused,
+    attempt_login,
+    auth_error,
+    authorize,
+    enforce_startup_policy,
+    issue_token,
+    presented_token,
+    require_passcode,
+    revoke_token,
+)
 from app.core.telemetry import telemetry
 from app.missions import store as mission_store
 from app.missions.models import ApprovalDecision, Budget
@@ -61,6 +73,16 @@ STATIC_DIR = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    # Before any socket accepts work and before the database is opened. A
+    # missing passcode or an accidental public bind must not serve a single
+    # request, including /health.
+    try:
+        bind_host = enforce_startup_policy(settings)
+    except StartupRefused as exc:
+        # Expected policy failure, not a bug. Log the reason without a traceback
+        # so a journal full of stack frames does not hide the one line that matters.
+        log.error("%s", exc)
+        raise
 
     telemetry.init_db()
     mission_store.init_db()
@@ -95,17 +117,16 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         )
 
     log.info(
-        "Jarvis up | storage=%s | engines=%s | auth=%s | agents=%s | tools=%d",
+        "Jarvis up | storage=%s | engines=%s | auth=%s | bind=%s | agents=%s | tools=%d",
         settings.storage_backend,
         ",".join(orchestrator.engines.available()),
         "on" if settings.auth_enabled else "OFF",
+        bind_host,
         ",".join(agent_registry.ids()),
         len(tool_registry.names()),
     )
     if orchestrator.engines.is_degraded:
         log.warning("No GROQ_API_KEY or GEMINI_API_KEY set - running on local echo engine.")
-    if not settings.auth_enabled:
-        log.warning("No JARVIS_PASSCODE set - the API is unauthenticated.")
     if settings.storage_backend == "sqlite":
         log.warning(
             "Using SQLite. On an ephemeral host this database is wiped on every "
@@ -121,8 +142,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Auth is added first so it sits inside CORS. CORS must be the outer layer,
+# otherwise a 401 from the gate would leave a cross-origin client with no
+# Access-Control headers and the browser would hide the real status.
 # The PWA is same-origin, so CORS is not needed for it. It stays open for the
 # Phase 2 Ionic dashboard during local development (ionic serve on :8100).
+app.add_middleware(AuthGateMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("JARVIS_CORS_ORIGINS", "*").split(","),
@@ -137,6 +162,12 @@ Guarded = Annotated[None, Depends(require_passcode)]
 # --------------------------------------------------------------------------
 # Schemas
 # --------------------------------------------------------------------------
+
+
+class LoginRequest(BaseModel):
+    # Absent is an attempt, not a validation error: the client must see 401,
+    # and the lockout must count it. Capped so a huge body cannot stall sha256.
+    passcode: str = Field(default="", max_length=500)
 
 
 class SessionStartRequest(BaseModel):
@@ -258,6 +289,43 @@ async def health() -> dict[str, Any]:
         payload["status"] = "degraded"
         payload["telemetry_error"] = str(exc)
     return payload
+
+
+def _token_payload(token: str, expires_at: float) -> dict[str, Any]:
+    settings = get_settings()
+    return {
+        "status": "success",
+        "token_type": "bearer",
+        "token": token,
+        "expires_at": datetime.fromtimestamp(expires_at, timezone.utc).isoformat(timespec="seconds"),
+        "expires_in": settings.session_ttl_seconds,
+    }
+
+
+@app.post("/api/v1/auth/login", tags=["auth"])
+async def login(req: LoginRequest) -> dict[str, Any]:
+    """Exchange the passcode for an expiring session token.
+
+    Failures share the global lockout with the passcode header, so guessing
+    on either door locks both. The token is the session; the passcode stays
+    the credential and is not returned.
+    """
+    decision = attempt_login(req.passcode)
+    if decision != "ok":
+        raise auth_error(decision)
+    token, expires_at = issue_token()
+    return _token_payload(token, expires_at)
+
+
+@app.post("/api/v1/auth/logout", tags=["auth"])
+async def logout(
+    _: Guarded,
+    x_jarvis_token: str | None = Header(default=None, alias=TOKEN_HEADER),
+    authorization: str | None = Header(default=None),
+) -> dict[str, str]:
+    """Revoke the presented session token. A passcode-only call has nothing to revoke."""
+    revoke_token(presented_token(x_jarvis_token, authorization))
+    return {"status": "success"}
 
 
 @app.get("/api/v1/greeting", tags=["chat"])
@@ -793,14 +861,21 @@ async def export_dataset(_: Guarded) -> StreamingResponse:
 
 
 @app.websocket("/ws/logs")
-async def websocket_logs(websocket: WebSocket, passcode: str | None = Query(default=None)) -> None:
+async def websocket_logs(
+    websocket: WebSocket,
+    token: str | None = Query(default=None),
+    passcode: str | None = Query(default=None),
+) -> None:
     """Live telemetry stream.
 
-    Browsers cannot set headers on a WebSocket handshake, so the passcode
-    arrives as a query parameter here. Rejected before accept() so an
-    unauthorised client never joins the broadcast set.
+    Browsers cannot set headers on a WebSocket handshake, so the session
+    token (or the passcode, for clients that have not moved to sessions)
+    arrives as a query parameter. Rejected before accept() so an
+    unauthorised client never joins the broadcast set. HTTP headers are
+    ignored here on purpose: the TestClient and some proxies attach the
+    REST passcode header to the upgrade, and a bad query must still fail.
     """
-    if not check_passcode(passcode):
+    if authorize(token, passcode) != "ok":
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
