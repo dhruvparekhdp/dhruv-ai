@@ -32,6 +32,7 @@ from app.agents.registry import registry as agent_registry
 from app.core.config import get_settings
 from app.core.security import check_passcode, require_passcode
 from app.core.telemetry import telemetry
+from app.core import usage as usage_ledger
 from app.missions import store as mission_store
 from app.missions.models import ApprovalDecision, Budget
 from app.memory import search as memory_search
@@ -63,6 +64,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
 
     telemetry.init_db()
+    usage_ledger.init_db()
     mission_store.init_db()
     memory_store.init_db()
     node_store.init_db()
@@ -766,6 +768,26 @@ async def revoke_node(node_id: str, _: Guarded) -> dict[str, Any]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown node_id.")
     await gateway.detach(node_id)
     return {"status": "success", "node_id": node_id}
+
+
+@app.get("/api/usage", tags=["telemetry"])
+async def api_usage(
+    _: Guarded,
+    day: str = Query(default="", max_length=10),
+    mission_id: str = Query(default="", max_length=80),
+) -> dict[str, Any]:
+    """Token and estimated-cost breakdowns for the day, each agent, and each mission.
+
+    `day` is a UTC date, YYYY-MM-DD. Omit it and the agent and mission
+    breakdowns are for today, while `daily` still lists every day on record.
+    """
+    if day and len(day) != 10:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "day must be YYYY-MM-DD")
+    try:
+        body = usage_ledger.report(day=day, mission_id=mission_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "day must be YYYY-MM-DD") from exc
+    return {"status": "success", **body}
 
 
 @app.get("/api/v1/telemetry/stats", tags=["telemetry"])

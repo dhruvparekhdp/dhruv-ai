@@ -174,6 +174,7 @@ parameter, because browsers can't set headers on a WS handshake.
 | `GET` | `/api/v1/mood/history` | Recent check-ins. |
 | `POST` | `/api/v1/feedback` | Attach a ±1 reward to a turn. |
 | `GET` | `/api/v1/telemetry/stats` | Counters. |
+| `GET` | `/api/usage` | Token and estimated-cost breakdowns by day, agent, and mission. |
 | `GET` | `/api/v1/dataset/export` | ShareGPT JSONL download. |
 | `POST` | `/api/v1/missions` | Create and start a mission. |
 | `GET` | `/api/v1/missions` | Recent missions. |

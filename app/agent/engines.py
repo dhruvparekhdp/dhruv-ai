@@ -24,6 +24,7 @@ from typing import Any
 
 from app.agent import router as intent_router
 from app.core.config import Settings, get_settings
+from app.core import usage as usage_ledger
 
 log = logging.getLogger("jarvis.engines")
 
@@ -428,6 +429,12 @@ class EngineRouter:
                 continue
 
             result.fallbacks = fallbacks
+            usage_ledger.record(
+                provider=result.provider,
+                model=result.model,
+                prompt_tokens=result.prompt_tokens,
+                completion_tokens=result.completion_tokens,
+            )
             return result
 
         raise EngineError("all engines failed, including local fallback")
@@ -464,6 +471,12 @@ class EngineRouter:
             log.info(
                 "turn served by %s in %.0fms", engine.provider,
                 (time.perf_counter() - started) * 1000,
+            )
+            usage_ledger.record(
+                provider=result.provider,
+                model=result.model,
+                prompt_tokens=result.prompt_tokens,
+                completion_tokens=result.completion_tokens,
             )
             return result
 

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from app.agent import prompts
 from app.agent import router as intent_router
 from app.agent.engines import EngineRouter
+from app.core import usage as usage_ledger
 from app.core.telemetry import telemetry
 from app.services.websocket_manager import ws_manager
 
@@ -75,11 +76,14 @@ class Orchestrator:
             effective_prompt += _UNSUPPORTED_NOTE.format(intent=intent)
 
         try:
-            result = self.engines.complete(
-                intent=intent,
-                system_prompt=effective_prompt,
-                user_prompt=user_prompt,
-            )
+            # Chat is not a mission. It still counts toward the daily budget
+            # and toward the "chat" agent budget.
+            with usage_ledger.scope("", "chat"):
+                result = self.engines.complete(
+                    intent=intent,
+                    system_prompt=effective_prompt,
+                    user_prompt=user_prompt,
+                )
         except Exception as exc:  # noqa: BLE001 - logged as a failed trajectory
             latency_ms = int((time.perf_counter() - started) * 1000)
             log.exception("turn failed for session %s", session_id)

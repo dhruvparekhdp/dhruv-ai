@@ -30,6 +30,7 @@ from typing import Any, Awaitable, Callable
 
 from app.agents.registry import AgentDefinition
 from app.agent.engines import EngineError, EngineRouter, ToolCall
+from app.core import usage as usage_ledger
 from app.tools.registry import Risk, ToolError, check_permission, registry as tool_registry
 
 log = logging.getLogger("jarvis.runner")
@@ -59,6 +60,9 @@ class RunResult:
     tool_calls: int = 0
     iterations: int = 0
     tool_log: list[dict[str, Any]] = field(default_factory=list)
+    # Set when a spend budget was crossed. The scheduler pauses; it does not
+    # treat this as a silent stop or as a task failure.
+    budget_exceeded: str = ""
 
     @property
     def total_tokens(self) -> int:
@@ -100,79 +104,97 @@ class AgentRunner:
 
         result = RunResult(text="")
 
-        for iteration in range(1, MAX_ITERATIONS + 1):
-            result.iterations = iteration
+        # The scope covers the thread the router records from. asyncio.to_thread
+        # copies the current context, so the call lands on this mission and agent.
+        with usage_ledger.scope(mission_id, definition.id):
+            for iteration in range(1, MAX_ITERATIONS + 1):
+                result.iterations = iteration
 
-            elapsed = time.perf_counter() - started
-            if elapsed > budget.max_seconds:
-                result.text = result.text or (
-                    f"[stopped: exceeded the {budget.max_seconds}s time budget]"
+                elapsed = time.perf_counter() - started
+                if elapsed > budget.max_seconds:
+                    result.text = result.text or (
+                        f"[stopped: exceeded the {budget.max_seconds}s time budget]"
+                    )
+                    break
+                if result.total_tokens > budget.max_tokens:
+                    result.text = result.text or (
+                        f"[stopped: exceeded the {budget.max_tokens} token budget]"
+                    )
+                    break
+
+                # Already over a spend budget: do not make another paid call.
+                over = usage_ledger.blocking(mission_id, definition.id)
+                if over:
+                    result.budget_exceeded = over
+                    result.text = result.text or f"[paused: {over}]"
+                    break
+
+                try:
+                    completion = await asyncio.to_thread(
+                        self.engines.chat,
+                        messages=messages,
+                        tools=schemas or None,
+                        prefer=definition.model_preference,
+                    )
+                except EngineError as exc:
+                    raise RuntimeError(f"all engines failed: {exc}") from exc
+
+                result.provider = completion.provider
+                result.model = completion.model
+                result.prompt_tokens += completion.prompt_tokens
+                result.completion_tokens += completion.completion_tokens
+
+                # The call is already on the ledger. Stop before tools or another
+                # round so crossing the budget does not keep spending.
+                over = usage_ledger.blocking(mission_id, definition.id)
+                if over:
+                    result.budget_exceeded = over
+                    result.text = completion.text or f"[paused: {over}]"
+                    break
+
+                if not completion.wants_tools:
+                    result.text = completion.text
+                    break
+
+                # Record the assistant turn verbatim so the model sees its own call.
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": completion.text or "",
+                        "tool_calls": [
+                            {
+                                "id": call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": call.name,
+                                    "arguments": json.dumps(call.arguments),
+                                },
+                            }
+                            for call in completion.tool_calls
+                        ],
+                    }
                 )
-                break
-            if result.total_tokens > budget.max_tokens:
-                result.text = result.text or (
-                    f"[stopped: exceeded the {budget.max_tokens} token budget]"
-                )
-                break
 
-            try:
-                completion = await asyncio.to_thread(
-                    self.engines.chat,
-                    messages=messages,
-                    tools=schemas or None,
-                    prefer=definition.model_preference,
-                )
-            except EngineError as exc:
-                raise RuntimeError(f"all engines failed: {exc}") from exc
+                for call in completion.tool_calls:
+                    if result.tool_calls >= budget.max_tool_calls:
+                        messages.append(_tool_message(call, "[refused: tool-call budget exhausted]"))
+                        continue
 
-            result.provider = completion.provider
-            result.model = completion.model
-            result.prompt_tokens += completion.prompt_tokens
-            result.completion_tokens += completion.completion_tokens
-
-            if not completion.wants_tools:
-                result.text = completion.text
-                break
-
-            # Record the assistant turn verbatim so the model sees its own call.
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": completion.text or "",
-                    "tool_calls": [
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {
-                                "name": call.name,
-                                "arguments": json.dumps(call.arguments),
-                            },
-                        }
-                        for call in completion.tool_calls
-                    ],
-                }
-            )
-
-            for call in completion.tool_calls:
-                if result.tool_calls >= budget.max_tool_calls:
-                    messages.append(_tool_message(call, "[refused: tool-call budget exhausted]"))
-                    continue
-
-                result.tool_calls += 1
-                output = await self._invoke(
-                    definition,
-                    call,
-                    mission_id=mission_id,
-                    approval_hook=approval_hook,
-                    on_event=on_event,
-                )
-                result.tool_log.append(
-                    {"tool": call.name, "arguments": call.arguments, "output": output[:500]}
-                )
-                messages.append(_tool_message(call, output))
-        else:
-            # Loop ran to MAX_ITERATIONS without the model concluding.
-            result.text = result.text or "[stopped: too many tool-calling rounds without an answer]"
+                    result.tool_calls += 1
+                    output = await self._invoke(
+                        definition,
+                        call,
+                        mission_id=mission_id,
+                        approval_hook=approval_hook,
+                        on_event=on_event,
+                    )
+                    result.tool_log.append(
+                        {"tool": call.name, "arguments": call.arguments, "output": output[:500]}
+                    )
+                    messages.append(_tool_message(call, output))
+            else:
+                # Loop ran to MAX_ITERATIONS without the model concluding.
+                result.text = result.text or "[stopped: too many tool-calling rounds without an answer]"
 
         if not result.text:
             result.text = "[no answer produced]"
