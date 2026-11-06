@@ -1,8 +1,8 @@
 """Pydantic contracts for the agency domain.
 
 Create and read models exist for every entity so a later ticket can persist
-them without inventing a second shape. Update models exist for the three
-resources this ticket actually writes: Brand, Client and Contact.
+them without inventing a second shape. Update models exist for Brand, Client,
+Contact, and a content draft. A content update cannot carry a brand id.
 
 ``brand_id`` is required on every create model except ``BrandCreate``. Brand
 is the root. Unknown fields are rejected so a typo does not silently drop.
@@ -392,8 +392,33 @@ class ContentItemRead(APIModel):
     body: str
     status: ContentItemStatus
     scheduled_at: datetime | None
+    source_item_id: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ContentItemUpdate(APIModel):
+    """Fields a direct edit may change. Brand, channel and source are not among them."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=TITLE_MAX)
+    body: str | None = Field(default=None, max_length=BODY_MAX)
+    status: ContentItemStatus | None = None
+
+    @field_validator("title", "body")
+    @classmethod
+    def text_not_null(cls, value: str | None) -> str | None:
+        return _reject_null(value)
+
+
+class DuplicateContentRequest(APIModel):
+    target_brand_id: str = _id_field()
+
+
+class ScheduleContentRequest(APIModel):
+    """Local schedule. Applying it does not publish the item."""
+
+    channel_id: str = _id_field()
+    scheduled_at: datetime
 
 
 class ContentRevisionCreate(APIModel):

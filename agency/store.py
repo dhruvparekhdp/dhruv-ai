@@ -38,6 +38,7 @@ from agency.models import (
     Contact,
     new_id,
 )
+from agency.scope import BrandScope, constraint_rows, lookup
 from app.core.db import execute, fetch_all, fetch_one
 
 _E = TypeVar("_E", bound=Enum)
@@ -248,9 +249,7 @@ def _assert_contacts_still_fit(
     allowed = {owner_brand_id}
     if client_brand_id:
         allowed.add(client_brand_id)
-    rows = fetch_all(
-        conn, "SELECT brand_id FROM agy_contacts WHERE client_id = ?", (client_id,)
-    )
+    rows = constraint_rows(conn, "agy_contacts", "client_id = ?", (client_id,))
     if any(row["brand_id"] not in allowed for row in rows):
         raise AgencyError(
             "Cannot change brand linkage while a contact is scoped to a brand outside it."
@@ -261,11 +260,7 @@ def _assert_contact_link(conn, brand_id: str, client_id: str | None) -> None:
     _brand_row(conn, brand_id)
     if client_id is None:
         return
-    client = fetch_one(
-        conn,
-        "SELECT brand_id, client_brand_id FROM agy_clients WHERE id = ?",
-        (client_id,),
-    )
+    client = lookup(conn, "agy_clients", client_id)
     if client is None:
         raise AgencyError(f"Unknown client_id '{client_id}'.")
     allowed = {client["brand_id"]}
@@ -396,16 +391,12 @@ def update_brand(brand_id: str, **fields: Any) -> Brand | None:
 
 def _assert_kind_change(conn, brand_id: str, new_kind: BrandKind) -> None:
     if new_kind is BrandKind.CLIENT:
-        row = fetch_one(
-            conn, "SELECT id FROM agy_clients WHERE brand_id = ? LIMIT 1", (brand_id,)
-        )
-        if row is not None:
+        rows = BrandScope(conn, brand_id).select("agy_clients", limit=1)
+        if rows:
             raise AgencyError("This brand owns clients, so it cannot become a client brand.")
         return
-    row = fetch_one(
-        conn, "SELECT id FROM agy_clients WHERE client_brand_id = ? LIMIT 1", (brand_id,)
-    )
-    if row is not None:
+    rows = constraint_rows(conn, "agy_clients", "client_brand_id = ?", (brand_id,))
+    if rows:
         raise AgencyError("This brand is linked as a client brand. Kind must stay 'client'.")
 
 
@@ -439,78 +430,73 @@ def create_client(
 ) -> Client:
     try:
         with agency_conn() as conn:
-            owner = _clean_id(brand_id, "brand_id", required=True)
-            assert owner is not None
+            scope = BrandScope(conn, brand_id)
             record_id = _clean_id(client_id, "id", required=True) if client_id else new_id("cli")
+            assert record_id is not None
             linked = _clean_id(client_brand_id, "client_brand_id")
-            _assert_owner_brand(conn, owner)
-            _assert_client_brand(conn, linked, owner)
+            _assert_owner_brand(conn, scope.brand_id)
+            _assert_client_brand(conn, linked, scope.brand_id)
             now = _now()
-            execute(
-                conn,
-                "INSERT INTO agy_clients"
-                " (id, brand_id, client_brand_id, name, status, website, notes, created_at, updated_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    record_id,
-                    owner,
-                    linked,
-                    _require_text(name, "name", NAME_MAX),
-                    _coerce_enum(status, ClientStatus, "status").value,
-                    _optional_text(website, "website", URL_MAX),
-                    _optional_text(notes, "notes", NOTES_MAX),
-                    now,
-                    now,
-                ),
+            scope.insert(
+                "agy_clients",
+                {
+                    "id": record_id,
+                    "client_brand_id": linked,
+                    "name": _require_text(name, "name", NAME_MAX),
+                    "status": _coerce_enum(status, ClientStatus, "status").value,
+                    "website": _optional_text(website, "website", URL_MAX),
+                    "notes": _optional_text(notes, "notes", NOTES_MAX),
+                    "created_at": now,
+                    "updated_at": now,
+                },
             )
-            row = fetch_one(conn, "SELECT * FROM agy_clients WHERE id = ?", (record_id,))
+            row = scope.get("agy_clients", record_id)
     except _INTEGRITY as exc:
         _raise_integrity(exc)
     assert row is not None
     return _row_client(row)
 
 
-def get_client(client_id: str) -> Client | None:
+def get_client(brand_id: str, client_id: str) -> Client | None:
     with agency_conn() as conn:
-        row = fetch_one(conn, "SELECT * FROM agy_clients WHERE id = ?", (client_id,))
+        row = BrandScope(conn, brand_id).get("agy_clients", client_id)
     return _row_client(row) if row else None
 
 
 def list_clients(
+    brand_id: str,
     *,
-    brand_id: str | None = None,
     status: str | ClientStatus | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[Client]:
     limit_value = _bound(limit, "limit", 1, 200)
     offset_value = _bound(offset, "offset", 0, 100_000)
-    clauses: list[str] = []
+    where = ""
     params: list[Any] = []
-    if brand_id:
-        clauses.append("brand_id = ?")
-        params.append(_clean_id(brand_id, "brand_id", required=True))
     if status:
-        clauses.append("status = ?")
+        where = "status = ?"
         params.append(_coerce_enum(status, ClientStatus, "status").value)
-    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    params.extend([limit_value, offset_value])
     with agency_conn() as conn:
-        rows = fetch_all(
-            conn,
-            "SELECT * FROM agy_clients" + where + " ORDER BY updated_at DESC, id ASC LIMIT ? OFFSET ?",
-            params,
+        rows = BrandScope(conn, brand_id).select(
+            "agy_clients",
+            where=where,
+            params=params,
+            order="updated_at DESC, id ASC",
+            limit=limit_value,
+            offset=offset_value,
         )
     return [_row_client(row) for row in rows]
 
 
-def update_client(client_id: str, **fields: Any) -> Client | None:
+def update_client(brand_id: str, client_id: str, /, **fields: Any) -> Client | None:
     unknown = set(fields) - {"brand_id", "name", "status", "client_brand_id", "website", "notes"}
     if unknown:
         raise AgencyError(f"Unknown field(s): {', '.join(sorted(unknown))}.")
     try:
         with agency_conn() as conn:
-            current = fetch_one(conn, "SELECT * FROM agy_clients WHERE id = ?", (client_id,))
+            scope = BrandScope(conn, brand_id)
+            current = scope.get("agy_clients", client_id)
             if current is None:
                 return None
             if not fields:
@@ -540,25 +526,36 @@ def update_client(client_id: str, **fields: Any) -> Client | None:
             if "brand_id" in fields or "client_brand_id" in fields:
                 _assert_contacts_still_fit(conn, client_id, owner, linked)
             now = _now()
-            execute(
-                conn,
-                "UPDATE agy_clients SET brand_id = ?, client_brand_id = ?, name = ?, status = ?,"
-                " website = ?, notes = ?, updated_at = ? WHERE id = ?",
-                (owner, linked, name, status.value, website, notes, now, client_id),
+            changed = scope.update(
+                "agy_clients",
+                client_id,
+                {
+                    "brand_id": owner,
+                    "client_brand_id": linked,
+                    "name": name,
+                    "status": status.value,
+                    "website": website,
+                    "notes": notes,
+                    "updated_at": now,
+                },
+                allow_brand_change=True,
             )
-            row = fetch_one(conn, "SELECT * FROM agy_clients WHERE id = ?", (client_id,))
+            if changed == 0:
+                return None
+            row = BrandScope(conn, owner).get("agy_clients", client_id)
     except _INTEGRITY as exc:
         _raise_integrity(exc)
     assert row is not None
     return _row_client(row)
 
 
-def delete_client(client_id: str) -> bool:
+def delete_client(brand_id: str, client_id: str) -> bool:
     try:
         with agency_conn() as conn:
-            if fetch_one(conn, "SELECT id FROM agy_clients WHERE id = ?", (client_id,)) is None:
+            scope = BrandScope(conn, brand_id)
+            if scope.get("agy_clients", client_id) is None:
                 return False
-            execute(conn, "DELETE FROM agy_clients WHERE id = ?", (client_id,))
+            scope.delete("agy_clients", client_id)
     except _INTEGRITY as exc:
         raise AgencyConflict(
             "Client is still referenced. Remove the records that point at it first."
@@ -584,80 +581,73 @@ def create_contact(
 ) -> Contact:
     try:
         with agency_conn() as conn:
-            owner = _clean_id(brand_id, "brand_id", required=True)
-            assert owner is not None
+            scope = BrandScope(conn, brand_id)
             linked = _clean_id(client_id, "client_id")
-            _assert_contact_link(conn, owner, linked)
+            _assert_contact_link(conn, scope.brand_id, linked)
             record_id = _clean_id(contact_id, "id", required=True) if contact_id else new_id("cnt")
+            assert record_id is not None
             now = _now()
-            execute(
-                conn,
-                "INSERT INTO agy_contacts"
-                " (id, brand_id, client_id, name, email, phone, role, notes, created_at, updated_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    record_id,
-                    owner,
-                    linked,
-                    _require_text(name, "name", NAME_MAX),
-                    _clean_email(email),
-                    _optional_text(phone, "phone", PHONE_MAX),
-                    _optional_text(role, "role", ROLE_MAX),
-                    _optional_text(notes, "notes", NOTES_MAX),
-                    now,
-                    now,
-                ),
+            scope.insert(
+                "agy_contacts",
+                {
+                    "id": record_id,
+                    "client_id": linked,
+                    "name": _require_text(name, "name", NAME_MAX),
+                    "email": _clean_email(email),
+                    "phone": _optional_text(phone, "phone", PHONE_MAX),
+                    "role": _optional_text(role, "role", ROLE_MAX),
+                    "notes": _optional_text(notes, "notes", NOTES_MAX),
+                    "created_at": now,
+                    "updated_at": now,
+                },
             )
-            row = fetch_one(conn, "SELECT * FROM agy_contacts WHERE id = ?", (record_id,))
+            row = scope.get("agy_contacts", record_id)
     except _INTEGRITY as exc:
         _raise_integrity(exc)
     assert row is not None
     return _row_contact(row)
 
 
-def get_contact(contact_id: str) -> Contact | None:
+def get_contact(brand_id: str, contact_id: str) -> Contact | None:
     with agency_conn() as conn:
-        row = fetch_one(conn, "SELECT * FROM agy_contacts WHERE id = ?", (contact_id,))
+        row = BrandScope(conn, brand_id).get("agy_contacts", contact_id)
     return _row_contact(row) if row else None
 
 
 def list_contacts(
+    brand_id: str,
     *,
-    brand_id: str | None = None,
     client_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[Contact]:
     limit_value = _bound(limit, "limit", 1, 200)
     offset_value = _bound(offset, "offset", 0, 100_000)
-    clauses: list[str] = []
+    where = ""
     params: list[Any] = []
-    if brand_id:
-        clauses.append("brand_id = ?")
-        params.append(_clean_id(brand_id, "brand_id", required=True))
     if client_id:
-        clauses.append("client_id = ?")
+        where = "client_id = ?"
         params.append(_clean_id(client_id, "client_id", required=True))
-    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    params.extend([limit_value, offset_value])
     with agency_conn() as conn:
-        rows = fetch_all(
-            conn,
-            "SELECT * FROM agy_contacts"
-            + where
-            + " ORDER BY name ASC, id ASC LIMIT ? OFFSET ?",
-            params,
+        rows = BrandScope(conn, brand_id).select(
+            "agy_contacts",
+            where=where,
+            params=params,
+            order="name ASC, id ASC",
+            limit=limit_value,
+            offset=offset_value,
         )
     return [_row_contact(row) for row in rows]
 
 
-def update_contact(contact_id: str, **fields: Any) -> Contact | None:
+def update_contact(brand_id: str, contact_id: str, /, **fields: Any) -> Contact | None:
     unknown = set(fields) - {"brand_id", "name", "client_id", "email", "phone", "role", "notes"}
     if unknown:
         raise AgencyError(f"Unknown field(s): {', '.join(sorted(unknown))}.")
     try:
         with agency_conn() as conn:
-            current = fetch_one(conn, "SELECT * FROM agy_contacts WHERE id = ?", (contact_id,))
+            scope = BrandScope(conn, brand_id)
+            current = scope.get("agy_contacts", contact_id)
             if current is None:
                 return None
             if not fields:
@@ -687,25 +677,37 @@ def update_contact(contact_id: str, **fields: Any) -> Contact | None:
                 linked = _clean_id(fields["client_id"], "client_id")
             _assert_contact_link(conn, owner, linked)
             now = _now()
-            execute(
-                conn,
-                "UPDATE agy_contacts SET brand_id = ?, client_id = ?, name = ?, email = ?,"
-                " phone = ?, role = ?, notes = ?, updated_at = ? WHERE id = ?",
-                (owner, linked, name, email, phone, role, notes, now, contact_id),
+            changed = scope.update(
+                "agy_contacts",
+                contact_id,
+                {
+                    "brand_id": owner,
+                    "client_id": linked,
+                    "name": name,
+                    "email": email,
+                    "phone": phone,
+                    "role": role,
+                    "notes": notes,
+                    "updated_at": now,
+                },
+                allow_brand_change=True,
             )
-            row = fetch_one(conn, "SELECT * FROM agy_contacts WHERE id = ?", (contact_id,))
+            if changed == 0:
+                return None
+            row = BrandScope(conn, owner).get("agy_contacts", contact_id)
     except _INTEGRITY as exc:
         _raise_integrity(exc)
     assert row is not None
     return _row_contact(row)
 
 
-def delete_contact(contact_id: str) -> bool:
+def delete_contact(brand_id: str, contact_id: str) -> bool:
     try:
         with agency_conn() as conn:
-            if fetch_one(conn, "SELECT id FROM agy_contacts WHERE id = ?", (contact_id,)) is None:
+            scope = BrandScope(conn, brand_id)
+            if scope.get("agy_contacts", contact_id) is None:
                 return False
-            execute(conn, "DELETE FROM agy_contacts WHERE id = ?", (contact_id,))
+            scope.delete("agy_contacts", contact_id)
     except _INTEGRITY as exc:
         raise AgencyConflict(
             "Contact is still referenced. Remove the records that point at it first."

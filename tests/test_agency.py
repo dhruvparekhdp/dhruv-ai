@@ -60,24 +60,28 @@ def _fails(sql: str, params: tuple = ()) -> None:
 
 
 def test_migrate_up_down_and_up_again(env):
-    assert migrate.migrate_up() == ["0001"]
+    assert migrate.migrate_up() == ["0001", "0002"]
     tables = set(list_agency_tables())
     assert tables == set(BRAND_SCOPED_TABLES) | {"agy_brands", "agy_schema_migrations"}
+    assert "source_item_id" in table_columns("agy_content_items")
     assert migrate.migrate_up() == []
 
-    assert migrate.migrate_down() == ["0001"]
+    assert migrate.migrate_down() == ["0002", "0001"]
     assert list_agency_tables() == []
     assert migrate.applied_versions() == []
     # A second down is a no-op, not an error.
     assert migrate.migrate_down() == []
 
-    assert migrate.migrate_up() == ["0001"]
+    assert migrate.migrate_up() == ["0001", "0002"]
     assert "agy_brands" in list_agency_tables()
 
 
 def test_migrate_down_one_step(env):
     migrate.migrate_up()
-    assert migrate.migrate_down(steps=1) == ["0001"]
+    assert migrate.migrate_down(steps=1) == ["0002"]
+    assert "agy_brands" in list_agency_tables()
+    assert "source_item_id" not in table_columns("agy_content_items")
+    assert migrate.migrate_down() == ["0001"]
     assert list_agency_tables() == []
 
 
@@ -233,7 +237,7 @@ def test_client_links_owner_and_client_brand(db):
     with pytest.raises(AgencyError):
         db.create_client("brd_missing", "Nope")
 
-    paused = db.update_client(client.id, status="paused", notes="waiting")
+    paused = db.update_client(owner.id, client.id, status="paused", notes="waiting")
     assert paused is not None
     assert paused.status is ClientStatus.PAUSED
     assert [row.id for row in db.list_clients(brand_id=owner.id, status="paused")] == [client.id]
@@ -268,12 +272,12 @@ def test_contact_crud_and_brand_scope(db):
     with pytest.raises(AgencyError):
         db.create_contact(owner.id, "Bad", email="not-an-email")
 
-    cleared = db.update_contact(contact.id, client_id=None, phone="+91 90000 00000")
+    cleared = db.update_contact(client_brand.id, contact.id, client_id=None, phone="+91 90000 00000")
     assert cleared is not None
     assert cleared.client_id is None
     assert cleared.phone == "+91 90000 00000"
-    assert db.delete_contact(contact.id) is True
-    assert db.get_contact(contact.id) is None
+    assert db.delete_contact(client_brand.id, contact.id) is True
+    assert db.get_contact(client_brand.id, contact.id) is None
 
 
 def test_delete_refuses_a_brand_or_client_that_is_in_use(db):
@@ -282,11 +286,11 @@ def test_delete_refuses_a_brand_or_client_that_is_in_use(db):
     contact = db.create_contact(owner.id, "Ada", client_id=client.id)
 
     with pytest.raises(AgencyConflict):
-        db.delete_client(client.id)
-    assert db.get_client(client.id) is not None
+        db.delete_client(owner.id, client.id)
+    assert db.get_client(owner.id, client.id) is not None
 
-    db.delete_contact(contact.id)
-    assert db.delete_client(client.id) is True
+    db.delete_contact(owner.id, contact.id)
+    assert db.delete_client(owner.id, client.id) is True
     with pytest.raises(AgencyConflict):
         # Recreate and prove the brand itself is held.
         held = db.create_client(owner.id, "Still here")
@@ -369,11 +373,16 @@ def test_api_seed_and_brand_client_contact_crud(client):
     assert person.json()["contact"]["email"] == "ada@example.com"
 
     assert client.delete("/api/agency/brands/brd_agency").status_code == 409
-    assert client.delete(f"/api/agency/contacts/{contact_id}").status_code == 200
-    assert client.delete(f"/api/agency/clients/{client_id}").status_code == 200
+    assert client.delete(
+        f"/api/agency/contacts/{contact_id}", params={"brand_id": "brd_demo_client"}
+    ).status_code == 200
+    assert client.delete(
+        f"/api/agency/clients/{client_id}", params={"brand_id": "brd_agency"}
+    ).status_code == 200
     assert client.delete(f"/api/agency/brands/{brand_id}").status_code == 200
     assert client.get(f"/api/agency/brands/{brand_id}").status_code == 404
-    assert client.get("/api/agency/clients/cli_missing").status_code == 404
+    assert client.get("/api/agency/clients").status_code == 422
+    assert client.get("/api/agency/clients/cli_missing", params={"brand_id": "brd_agency"}).status_code == 404
 
 
 def test_api_requires_passcode(client):
