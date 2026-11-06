@@ -1,0 +1,25 @@
+{
+  "source_engine": "crypto-signal-engine",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-06T11:59:31Z",
+  "data_as_of": "2026-11-06T11:59:30Z",
+  "status": "ok",
+  "is_stale": false,
+  "mode": "paper",
+  "correlation_id": "corr-fixture-1",
+  "data": {
+    "service": "crypto-signal-engine",
+    "version": "1.4.0",
+    "checks": [
+      {
+        "name": "market-data",
+        "status": "ok",
+        "detail": "quotes are current"
+      }
+    ],
+    "details": {
+      "venue": "binance"
+    }
+  },
+  "errors": []
+}

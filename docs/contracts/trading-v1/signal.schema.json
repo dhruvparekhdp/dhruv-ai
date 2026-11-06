@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "Side": {
+      "enum": [
+        "buy",
+        "sell"
+      ],
+      "title": "Side",
+      "type": "string"
+    },
+    "SignalStatus": {
+      "enum": [
+        "active",
+        "closed",
+        "invalidated"
+      ],
+      "title": "SignalStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "rationale": {
+      "maxLength": 2000,
+      "title": "Rationale",
+      "type": "string"
+    },
+    "side": {
+      "$ref": "#/$defs/Side"
+    },
+    "status": {
+      "$ref": "#/$defs/SignalStatus"
+    },
+    "strategy": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Strategy",
+      "type": "string"
+    },
+    "strategy_version": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Strategy Version",
+      "type": "string"
+    },
+    "strength": {
+      "pattern": "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+      "title": "Strength",
+      "type": "string"
+    },
+    "symbol": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Symbol",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "symbol",
+    "side",
+    "strength",
+    "strategy",
+    "strategy_version",
+    "generated_at",
+    "status",
+    "rationale"
+  ],
+  "title": "Signal",
+  "type": "object"
+}

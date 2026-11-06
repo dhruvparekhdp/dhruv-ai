@@ -1,0 +1,199 @@
+{
+  "$defs": {
+    "ConfiguredLimit": {
+      "additionalProperties": false,
+      "properties": {
+        "max_leverage": {
+          "anyOf": [
+            {
+              "pattern": "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Leverage"
+        },
+        "max_notional": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ConfiguredLimit",
+      "type": "object"
+    },
+    "Exposure": {
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "$ref": "#/$defs/Money"
+        },
+        "kind": {
+          "pattern": "^(symbol|sector)$",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "amount"
+      ],
+      "title": "Exposure",
+      "type": "object"
+    },
+    "LimitBreach": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_leverage": {
+          "anyOf": [
+            {
+              "pattern": "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual Leverage"
+        },
+        "actual_notional": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "limit_leverage": {
+          "anyOf": [
+            {
+              "pattern": "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit Leverage"
+        },
+        "limit_notional": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Money"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "message": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "message"
+      ],
+      "title": "LimitBreach",
+      "type": "object"
+    },
+    "Money": {
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "title": "Amount",
+          "type": "string"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3,10}$",
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "title": "Money",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "breaches": {
+      "items": {
+        "$ref": "#/$defs/LimitBreach"
+      },
+      "title": "Breaches",
+      "type": "array"
+    },
+    "exposure": {
+      "items": {
+        "$ref": "#/$defs/Exposure"
+      },
+      "title": "Exposure",
+      "type": "array"
+    },
+    "leverage": {
+      "pattern": "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+      "title": "Leverage",
+      "type": "string"
+    },
+    "limits": {
+      "items": {
+        "$ref": "#/$defs/ConfiguredLimit"
+      },
+      "title": "Limits",
+      "type": "array"
+    }
+  },
+  "required": [
+    "exposure",
+    "leverage",
+    "limits",
+    "breaches"
+  ],
+  "title": "RiskSnapshot",
+  "type": "object"
+}
