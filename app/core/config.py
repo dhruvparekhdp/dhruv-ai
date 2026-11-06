@@ -26,6 +26,48 @@ def _env_bool(key: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _env_int(key: str, default: int, *, minimum: int, maximum: int | None = None) -> int:
+    """Parse an integer setting. A typo falls back to the default.
+
+    Falling back keeps a bad value from disabling a limit (a huge body cap)
+    or from locking the API (a zero rate limit).
+    """
+    raw = _env(key)
+    if not raw:
+        return default
+    try:
+        value = int(raw, 10)
+    except ValueError:
+        return default
+    if value < minimum:
+        return default
+    if maximum is not None and value > maximum:
+        return default
+    return value
+
+
+def _cors_from_env() -> tuple[tuple[str, ...], bool]:
+    """Explicit origins, and whether a wildcard was dropped.
+
+    `*` with credentials makes the browser treat every site as this one.
+    The star is never forwarded to the CORS middleware. Same-origin (the
+    PWA) needs no entry. List the Ionic dev server, or any other origin,
+    explicitly.
+    """
+    wildcard = False
+    origins: list[str] = []
+    for part in _env("JARVIS_CORS_ORIGINS").split(","):
+        item = part.strip().rstrip("/")
+        if not item:
+            continue
+        if item == "*":
+            wildcard = True
+            continue
+        if item not in origins:
+            origins.append(item)
+    return tuple(origins), wildcard
+
+
 @dataclass(frozen=True)
 class Settings:
     """Immutable runtime settings snapshot."""
@@ -54,6 +96,16 @@ class Settings:
     # postgres://... -> Neon/any Postgres, and telemetry survives redeploys.
     database_url: str
     sqlite_path: str
+
+    # --- HTTP surface ----------------------------------------------------
+    # Explicit browser origins. Empty means same-origin only. A configured
+    # `*` is recorded and ignored (see cors_wildcard_ignored).
+    cors_origins: tuple[str, ...]
+    cors_wildcard_ignored: bool
+    max_body_bytes: int
+    mission_rate_limit: int
+    llm_rate_limit: int
+    rate_window_seconds: int
 
     # --- Misc ------------------------------------------------------------
     app_name: str
@@ -84,6 +136,7 @@ class Settings:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Build (and cache) settings from the environment."""
+    origins, wildcard_ignored = _cors_from_env()
     return Settings(
         groq_api_key=_env("GROQ_API_KEY"),
         gemini_api_key=_env("GEMINI_API_KEY"),
@@ -93,6 +146,13 @@ def get_settings() -> Settings:
         passcode=_env("JARVIS_PASSCODE"),
         database_url=_env("DATABASE_URL"),
         sqlite_path=_env("JARVIS_DB_PATH", "jarvis_system.db"),
+        cors_origins=origins,
+        cors_wildcard_ignored=wildcard_ignored,
+        # 1 MiB covers every JSON route. There is no upload endpoint.
+        max_body_bytes=_env_int("JARVIS_MAX_BODY_BYTES", 1024 * 1024, minimum=1),
+        mission_rate_limit=_env_int("JARVIS_MISSION_RATE_LIMIT", 10, minimum=1),
+        llm_rate_limit=_env_int("JARVIS_LLM_RATE_LIMIT", 30, minimum=1),
+        rate_window_seconds=_env_int("JARVIS_RATE_WINDOW_SECONDS", 60, minimum=1),
         app_name=_env("JARVIS_APP_NAME", "Jarvis"),
         debug=_env_bool("JARVIS_DEBUG", False),
     )

@@ -150,7 +150,12 @@ API keys — both optional, and Jarvis runs without either:
 | `GEMINI_MODEL` | `gemini-2.5-flash` | |
 | `DATABASE_URL` | _(none)_ | Unset → SQLite. Postgres URL → durable storage. |
 | `JARVIS_DB_PATH` | `jarvis_system.db` | SQLite file location. |
-| `JARVIS_DEBUG` | `false` | Verbose logging. |
+| `JARVIS_DEBUG` | `false` | Verbose logging, and exception text on 500/502. Off, those responses stay generic. |
+| `JARVIS_CORS_ORIGINS` | _(empty)_ | Comma-separated browser origins. Empty is same-origin only. `*` is ignored. |
+| `JARVIS_MAX_BODY_BYTES` | `1048576` | Request body cap. File content types are refused. |
+| `JARVIS_MISSION_RATE_LIMIT` | `10` | Mission starts allowed per window. |
+| `JARVIS_LLM_RATE_LIMIT` | `30` | `POST /command` and `POST /mood` calls allowed per window. |
+| `JARVIS_RATE_WINDOW_SECONDS` | `60` | Window for both rate limits. |
 
 > **Model note.** The original design document specified `llama-3.3-70b-versatile` as the primary
 > Groq engine. Groq is shutting that model down on **2026-08-16**, so the default here is
@@ -282,6 +287,10 @@ Android-only.
 
 - The passcode is a single shared secret — enough to keep a reachable URL from being wide open, not
   a substitute for real auth. JWT + WebAuthn passkeys come later.
+- Cross-origin calls are off unless `JARVIS_CORS_ORIGINS` names the origin. A wildcard is never
+  accepted. Responses carry a same-origin content security policy, `nosniff`, and `no-referrer`,
+  and the page cannot be framed. Mission starts and model calls are rate-limited in process.
+  Outside `JARVIS_DEBUG`, errors do not include exception text or tracebacks.
 - Secrets are read from the environment and handed only to the engine client that needs them.
   Nothing secret is committed; `.env` is gitignored.
 - Gemini's free tier may use prompts to improve Google's products. Fine for mood check-ins; worth

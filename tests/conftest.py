@@ -51,6 +51,11 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("JARVIS_PASSCODE", TEST_PASSCODE)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("JARVIS_DEBUG", raising=False)
+    monkeypatch.delenv("JARVIS_CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("JARVIS_MAX_BODY_BYTES", raising=False)
+    monkeypatch.delenv("JARVIS_MISSION_RATE_LIMIT", raising=False)
+    monkeypatch.delenv("JARVIS_LLM_RATE_LIMIT", raising=False)
 
     if TEST_DATABASE_URL:
         monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
@@ -59,13 +64,16 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         monkeypatch.delenv("DATABASE_URL", raising=False)
 
     from app.core.config import get_settings
+    from app.core.http_guard import reset_rate_limits
 
     get_settings.cache_clear()
+    reset_rate_limits()
     if TEST_DATABASE_URL:
         _reset_postgres()
 
     yield
     get_settings.cache_clear()
+    reset_rate_limits()
 
 
 class ScriptedEngine:

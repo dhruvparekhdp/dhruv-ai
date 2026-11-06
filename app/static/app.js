@@ -292,7 +292,12 @@
 
     const track = document.createElement("div");
     track.className = "progress-track";
-    track.innerHTML = `<div class="progress-fill ${status}" style="width:${percent}%"></div>`;
+    // Width goes through the CSSOM. An HTML style attribute would need
+    // style-src 'unsafe-inline', which the page policy does not allow.
+    const fill = document.createElement("div");
+    fill.className = `progress-fill ${status}`;
+    fill.style.width = `${Number(percent) || 0}%`;
+    track.appendChild(fill);
     node.appendChild(track);
 
     if (mission.tasks && mission.tasks.length) {
