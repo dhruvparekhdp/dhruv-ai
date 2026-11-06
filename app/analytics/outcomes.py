@@ -83,6 +83,9 @@ class OutcomeReport:
     gross_profit: Decimal
     gross_loss: Decimal
     max_drawdown: Decimal
+    # Peak-to-trough as a fraction of the peak. None when the book never
+    # trades above zero, so a percent alert has nothing honest to compare.
+    max_drawdown_pct: Decimal | None
     longest_win_streak: int
     longest_loss_streak: int
     current_streak_kind: str
@@ -199,6 +202,7 @@ def _report(mode: str, currency: str, rows: list[_Row], *, truncated: bool) -> O
         gross_profit=stats.gross_profit,
         gross_loss=stats.gross_loss,
         max_drawdown=stats.max_drawdown,
+        max_drawdown_pct=_max_drawdown_pct(rows),
         longest_win_streak=longest_win,
         longest_loss_streak=longest_loss,
         current_streak_kind=kind,
@@ -264,6 +268,27 @@ def _max_drawdown(rows: list[_Row]) -> Decimal:
         drawdown = peak - equity
         if drawdown > worst:
             worst = drawdown
+    return worst
+
+
+def _max_drawdown_pct(rows: list[_Row]) -> Decimal | None:
+    """Same walk as `_max_drawdown`, as `(peak - equity) / peak`.
+
+    Currency drawdown cannot answer "drawdown > Y%". A peak that never rises
+    above zero has no denominator; callers must not invent 100%.
+    """
+    peak = Decimal(0)
+    equity = Decimal(0)
+    worst: Decimal | None = None
+    for row in rows:
+        equity += row.pnl
+        if equity > peak:
+            peak = equity
+        if peak <= 0:
+            continue
+        pct = (peak - equity) / peak
+        if worst is None or pct > worst:
+            worst = pct
     return worst
 
 

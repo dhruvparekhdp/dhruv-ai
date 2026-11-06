@@ -183,6 +183,7 @@ parameter, because browsers can't set headers on a WS handshake.
 | `GET` | `/api/v1/agents` | Loaded agent definitions. |
 | `GET` | `/api/v1/tools` | Tools with capability and risk. |
 | `GET` | `/api/v1/adapters/health` | Adapter circuits and last result. Does not call upstreams. |
+| `GET` | `/api/v1/alerts` | Delivered in-app trading alerts. |
 | `GET` | `/api/v1/nodes` | The fleet: every node, its capabilities and health. |
 | `POST` | `/api/v1/nodes/enrol` | Mint a one-time join token. |
 | `POST` | `/api/v1/nodes/dispatch` | Run a node tool directly. |
@@ -232,6 +233,7 @@ nodes/pc/      the node agent that runs on each machine
     trading/   read-only crypto and NSE clients (not an order API)
   contracts/   trading-v1 models; not served by this process
   analytics/   paper and shadow outcome math; no model calls
+  alerts/      in-app inbox, IST quiet hours, daily briefing mission
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
 tests/         150 tests, all offline

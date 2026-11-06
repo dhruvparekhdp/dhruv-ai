@@ -432,4 +432,30 @@ figure the sheet does not contain.
 Books are split by mode and currency. Research trades are not outcomes. An
 open trade is not a result. Profit factor is undefined when nothing was lost,
 rather than a made-up infinity. Max drawdown is the peak-to-trough drop of
-cumulative pnl from a zero start, in pnl currency.
+cumulative pnl from a zero start, in pnl currency. The percent of that peak
+is a separate field used by the drawdown alert (D-030).
+
+---
+
+## D-030 · Trading alerts stay in the app, on IST
+
+Signal strength, engine age, drawdown, and a risk-limit breach are evaluated
+in Python and written to an inbox table. There is no mail, webhook, or push
+path. A condition at the threshold does not fire: strength and drawdown use
+strictly greater-than, and a feed is stale only when `data_as_of` is older
+than N minutes. A missing timestamp is not treated as stale.
+
+Quiet hours are the Asia/Kolkata wall clock, `[start, end)`, wrapping
+midnight. A row suppressed for quiet hours is not a delivery, so it does not
+start the dedupe window. The inbox lists delivered rows only.
+
+Drawdown percent is `(peak - equity) / peak` on the same walk as the currency
+drawdown. When the book never trades above zero the percent is absent and the
+rule does not fire.
+
+The daily briefing is a mission whose five sections (market, signals,
+positions, performance, alerts) are filled before the mission is stored, each
+with its own as-of. The tasks are already SUCCESS. Leaving them READY would
+hand the text to the planner, which can drop an as-of or name a symbol the
+positions read did not return. Performance figures come from the outcome
+arithmetic, not from the engine's performance object.

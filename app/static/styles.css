@@ -106,6 +106,14 @@ html, body {
   padding: 16px;
 }
 .card h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; color: var(--text-dim); }
+
+.alert-list { display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.alert-item { display: flex; flex-direction: column; gap: 2px; }
+.alert-item p { margin: 0; color: var(--text-dim); font-size: 13px; }
+.sev { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.sev-warning { color: var(--warn); }
+.sev-critical { color: var(--bad); }
+.sev-info { color: var(--text-dim); }
 .hint { margin: -4px 0 12px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
 
 /* ---------- Mood ---------- */

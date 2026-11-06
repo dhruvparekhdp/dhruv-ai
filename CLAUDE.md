@@ -110,6 +110,7 @@ app/
     trading/             read-only crypto and NSE clients (trading-v1)
   contracts/             trading-v1 models; not mounted on the Jarvis API
   analytics/             paper and shadow outcome math; no model calls
+  alerts/                in-app inbox, IST quiet hours, daily briefing mission
 nodes/pc/agent.py          the agent that runs on each machine
   services/websocket_manager.py
   static/                  vanilla PWA, no build step
