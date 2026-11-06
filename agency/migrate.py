@@ -204,9 +204,10 @@ def _apply(conn, script: str) -> None:
             buffer.append(line)
             continue
         flush()
-        from agency.status_migrate import HOOKS
+        from agency.channel_migrate import HOOKS as channel_hooks
+        from agency.status_migrate import HOOKS as status_hooks
 
-        hook = HOOKS.get(match.group(1))
+        hook = {**status_hooks, **channel_hooks}.get(match.group(1))
         if hook is None:
             raise RuntimeError(f"Unknown migration hook '{match.group(1)}'.")
         hook(conn)
