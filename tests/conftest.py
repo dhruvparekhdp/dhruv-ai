@@ -33,7 +33,7 @@ TEST_DATABASE_URL = os.getenv("JARVIS_TEST_DATABASE_URL", "").strip()
 _TABLES = (
     "tool_executions", "mood_checkins", "agent_trajectories", "sessions",
     "agent_messages", "approvals", "tasks", "missions", "memory_entries",
-    "nodes", "node_enrolments", "todos", "todo_tracks",
+    "nodes", "node_enrolments", "todos", "todo_tracks", "alerts",
 )
 
 

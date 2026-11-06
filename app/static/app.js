@@ -25,6 +25,7 @@
     stats: $("stats"), exportBtn: $("export-btn"),
     engineBadge: $("engine-badge"), storageBadge: $("storage-badge"),
     missionForm: $("mission-form"), missionInput: $("mission-input"), missionList: $("mission-list"),
+    alertList: $("alert-list"),
     approvals: $("approvals"), approvalList: $("approval-list"),
     memoryForm: $("memory-search-form"), memoryQuery: $("memory-query"),
     memoryScopes: $("memory-scopes"), memoryMethod: $("memory-method"),
@@ -273,7 +274,34 @@
       pushLog("error", `Could not load missions: ${err.message}`);
     }
     refreshApprovals();
+    refreshAlerts();
     return anyActive;
+  }
+
+  async function refreshAlerts() {
+    try {
+      const list = await api("/api/v1/alerts");
+      el.alertList.innerHTML = "";
+      if (!list.alerts.length) {
+        el.alertList.textContent = "No alerts.";
+        return;
+      }
+      for (const alert of list.alerts) {
+        const item = document.createElement("article");
+        item.className = "alert-item";
+        const sev = document.createElement("span");
+        sev.className = `sev sev-${alert.severity || "info"}`;
+        sev.textContent = alert.severity || "info";
+        const title = document.createElement("strong");
+        title.textContent = alert.title || "";
+        const body = document.createElement("p");
+        body.textContent = alert.body || "";
+        item.append(sev, title, body);
+        el.alertList.appendChild(item);
+      }
+    } catch (err) {
+      pushLog("error", `Could not load alerts: ${err.message}`);
+    }
   }
 
   function renderMission(mission) {

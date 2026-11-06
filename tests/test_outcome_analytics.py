@@ -104,6 +104,8 @@ def test_hand_book_matches_every_headline_figure() -> None:
     assert report.gross_profit == Decimal(21)
     assert report.gross_loss == Decimal(9)
     assert report.max_drawdown == Decimal(9)
+    # Peak equity is 15, so the 9-unit drop is 9/15 of that peak.
+    assert report.max_drawdown_pct == Decimal(9) / Decimal(15)
     assert report.longest_win_streak == 2
     assert report.longest_loss_streak == 3
     assert report.current_streak_kind == "win"
