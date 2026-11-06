@@ -47,6 +47,7 @@ from app.todos import store as todo_store
 from app.todos.models import TodoError
 from app.tools import cloud as _cloud_tools  # noqa: F401 - import registers the tools
 from app.tools import node as _node_tools    # noqa: F401 - import registers the tools
+from app.adapters.registry import registry as adapter_registry
 from app.tools.registry import registry as tool_registry
 
 logging.basicConfig(
@@ -482,6 +483,17 @@ async def list_agents(_: Guarded) -> dict[str, Any]:
 async def list_tools(_: Guarded) -> dict[str, Any]:
     tools = tool_registry.describe()
     return {"status": "success", "count": len(tools), "tools": tools}
+
+
+@app.get("/api/v1/adapters/health", tags=["adapters"])
+async def adapters_health(_: Guarded) -> dict[str, Any]:
+    """Circuit and last result for every registered adapter.
+
+    This does not call the upstreams. Probing on every read would open
+    circuits and spend rate limit on the observation itself.
+    """
+    report = adapter_registry.health()
+    return {"status": "success", **report}
 
 
 @app.get("/api/v1/approvals", tags=["agents"])
