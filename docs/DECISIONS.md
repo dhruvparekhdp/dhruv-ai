@@ -354,3 +354,33 @@ lease that has not actually lapsed, and duplicate work.
 
 `chrony` on every node, installed by the provisioning playbook. Cheap insurance against a whole
 class of distributed-systems bug.
+
+---
+
+## D-027 · The HTTP surface is an allowlist
+
+The PWA is same-origin (D-003), so the default deploy grants no cross-origin access. A second
+origin (the Ionic dev server, for example) is named in `JARVIS_CORS_ORIGINS`. `*` is parsed out
+and ignored: Starlette's CORS middleware, given a star plus credentials, reflects whatever
+`Origin` the browser sent and attaches `Access-Control-Allow-Credentials`, which is any website
+calling the API as the operator.
+
+The shell ships one script and one stylesheet. The content security policy is `default-src
+'self'` with `frame-ancestors 'none'`, and it does not allow `unsafe-inline` or `unsafe-eval`.
+The mission progress width is set through the CSSOM so the policy does not need an inline-style
+exception. `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and
+`X-Frame-Options: DENY` go out on every response, including the 500 the server-error middleware
+builds outside the header middleware.
+
+There is no upload route. Bodies that claim to be a file (`multipart/*`, images, audio, video,
+pdf, zip) are refused, and every body is capped (default 1 MiB) before it is read.
+
+Mission starts and model calls (`POST /command`, `POST /mood`) share one process-local window
+each. A per-address bucket would let one client rotate addresses around the limit, and this is a
+single-user system. The windows live in memory; a restart clears them, which only helps someone
+who can already restart the process. A rejected mission start is refused before a row is written.
+
+Outside `JARVIS_DEBUG`, a failed turn says "Engine failure." and an unhandled exception says
+"Internal server error." The exception text, traceback, and any connection string stay in the
+log. Debug mode includes them, because that is how a local failure gets diagnosed. A telemetry
+failure on `/health` reports `unavailable` rather than the exception string.
