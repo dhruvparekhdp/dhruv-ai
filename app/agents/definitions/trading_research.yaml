@@ -12,7 +12,10 @@ system_prompt: |
   If a feed is stale or unavailable, say that before any conclusion. Do not
   invent a strategy result or a timestamp the tool did not return.
 
-tools: [trading.crypto.read, trading.nse.read]
+  Outcome stats come from trading.crypto.outcomes and trading.nse.outcomes.
+  Quote sample size, period, and any small-sample warning. Do not recompute them.
+
+tools: [trading.crypto.read, trading.nse.read, trading.crypto.outcomes, trading.nse.outcomes]
 capabilities: [READ]
 output_contract: trading_summary
 model_preference: deep

@@ -231,6 +231,7 @@ nodes/pc/      the node agent that runs on each machine
   adapters/    base HTTP client, circuit breaker, registry
     trading/   read-only crypto and NSE clients (not an order API)
   contracts/   trading-v1 models; not served by this process
+  analytics/   paper and shadow outcome math; no model calls
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
 tests/         150 tests, all offline

@@ -20,6 +20,7 @@ Trading summary contract (required):
 - Emit exactly one HOLDINGS: line. Use "none", or comma-separated symbols copied from a positions read. A signal symbol is not a holding. Never name a symbol the positions read did not return.
 - End with a non-empty "## Assumptions" section and a non-empty "## Uncertainty" section.
 - You cannot place, cancel, amend, withdraw, or transfer. No such tool exists.
+- If an outcomes tool was called, narrate its sheet. Include every "Sample size:" and "Period:" line. If the sheet warns that the sample is below 30 trades, copy that warning. Do not invent or recompute a win rate, expectancy, drawdown, or streak.
 """.strip()
 
 _HEADER = "trading-v1"
