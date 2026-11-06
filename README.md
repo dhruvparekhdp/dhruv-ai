@@ -94,24 +94,26 @@ plainly rather than pretending to have run something.
 ## Quick start (local)
 
 ```bash
-pip install -r requirements-dev.txt
-JARVIS_PASSCODE=dev uvicorn app.main:app --reload
+make setup
+JARVIS_PASSCODE=dev .venv/bin/uvicorn app.main:app --reload
 ```
+
+`make setup` creates `.venv` and installs `requirements-dev.txt`. The same checks CI runs are local targets: `make lint`, `make typecheck`, `make test`, `make security`, or `make check` for all four.
 
 Open http://127.0.0.1:8000 and enter `dev`.
 
 No API key needed — Jarvis falls back to a local engine and tells you it's doing so.
 
 ```bash
-pytest -q          # 150 tests, no network, no tokens spent
+make test          # 185 tests, no network, no tokens spent
 ```
 
 The same suite runs against either backend. The host runs Postgres while local development runs on
 SQLite, so both are tested:
 
 ```bash
-pytest -q                                              # SQLite (default)
-JARVIS_TEST_DATABASE_URL=postgresql://... pytest -q    # Postgres
+make test                                              # SQLite (default)
+JARVIS_TEST_DATABASE_URL=postgresql://... make test    # Postgres
 ```
 
 ---
@@ -140,6 +142,8 @@ API keys — both optional, and Jarvis runs without either:
 ---
 
 ## Configuration
+
+Every variable the repo reads is listed, without a value, in [`.env.example`](.env.example).
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -229,7 +233,7 @@ nodes/pc/      the node agent that runs on each machine
   tools/       registry · cloud/{memory,web}               (capability + risk)
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
-tests/         150 tests, all offline
+tests/         185 tests, all offline
 ```
 
 **Why one runner instead of a class per agent:** the roadmap calls for ~20 specialists. Twenty

@@ -58,11 +58,16 @@ Breaking any of these is a bug, not a refactor:
 ## Commands
 
 ```bash
-pip install -r requirements-dev.txt
-JARVIS_PASSCODE=dev uvicorn app.main:app --reload      # http://127.0.0.1:8000, passcode "dev"
+make setup
+JARVIS_PASSCODE=dev .venv/bin/uvicorn app.main:app --reload   # http://127.0.0.1:8000, passcode "dev"
 
-pytest -q                                              # SQLite (default)
-JARVIS_TEST_DATABASE_URL=postgresql://... pytest -q     # Postgres — run before touching storage
+make test            # SQLite (default)
+make lint            # ruff, baselined
+make typecheck       # mypy --strict, baselined
+make security        # pip-audit, gitleaks, npm audit if a package.json exists
+make check           # lint + typecheck + test + security
+
+JARVIS_TEST_DATABASE_URL=postgresql://... .venv/bin/pytest -q  # Postgres — run before touching storage
 ```
 
 Works with **no API key**: the engine router falls back to a local echo engine and says so. Tests
@@ -132,7 +137,7 @@ drills/                    debugging drills: planted bugs + a runner (see drills
 
 Phases 1 and 2 are done: chat, mood check-ins, telemetry flywheel, PWA, and the full orchestration
 substrate (missions, agents, tools, permissions, approvals, budgets, crash recovery).
-**150 tests, passing on SQLite and Postgres 16.**
+**185 tests, passing on SQLite and Postgres 16.**
 
 **Next: Phase 3** — node protocol and the PC node agent, running on the host laptop.
 
