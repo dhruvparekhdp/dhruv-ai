@@ -14,6 +14,7 @@ from typing import Any
 from app.memory import search as memory_search
 from app.memory import store
 from app.memory.store import MemoryError_, VALID_SCOPES
+from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, ToolError, tool
 
 # Re-exported so callers keep a single import for schema setup.
@@ -46,6 +47,7 @@ def _scope_key(scope: str, mission_id: str) -> str:
     },
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.READ,
 )
 async def memory_search_tool(
     query: str, scope: str = "", _mission_id: str = "", **_: Any
@@ -88,6 +90,7 @@ async def memory_search_tool(
     },
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.READ,
 )
 async def memory_read_tool(scope: str, key: str = "", _mission_id: str = "", **_: Any) -> str:
     try:
@@ -120,6 +123,7 @@ async def memory_read_tool(scope: str, key: str = "", _mission_id: str = "", **_
     },
     capability=Capability.WRITE,
     risk=Risk.SENSITIVE,
+    policy=PolicyLevel.INTERNAL_WRITE,
 )
 async def memory_write_tool(
     scope: str, key: str, value: str, _mission_id: str = "", _agent_id: str = "", **_: Any
@@ -149,6 +153,7 @@ async def memory_write_tool(
     capability=Capability.WRITE,
     # Irreversible, so it always parks for a human decision regardless of grants.
     risk=Risk.DANGEROUS,
+    policy=PolicyLevel.DANGEROUS,
 )
 async def memory_forget_tool(scope: str, key: str, _mission_id: str = "", **_: Any) -> str:
     try:

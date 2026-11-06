@@ -354,3 +354,20 @@ lease that has not actually lapsed, and duplicate work.
 
 `chrony` on every node, installed by the provisioning playbook. Cheap insurance against a whole
 class of distributed-systems bug.
+
+---
+
+## D-028 · Approvals bind to one exact action
+
+`DANGEROUS` still always parks (D-008). Calls that leave the machine (`external`:
+`web.fetch`, `web.search`) park as well, even though their older risk label is `SAFE`,
+because that label only meant "no local mutation".
+
+The gate is `execute_tool`, not the prompt. An approval stores who decided, when, the
+decision, the mission id, and a SHA-256 of the tool name plus canonical params. Execution
+recomputes the hash. A different argument, a second use, or an age past 15 minutes
+(`JARVIS_APPROVAL_TTL_SECONDS`) is a denial, and the handler does not run. The row is in
+the mission database, so a restart still has it.
+
+The full table is `docs/architecture/permission-matrix.md`. Unregistered names are denied.
+There is no default allow.

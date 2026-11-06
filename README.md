@@ -28,8 +28,8 @@ Runs on your own hardware, and works before you have any API key at all.
   generic runner. Adding an agent is adding a file, not writing code.
 - **Permissions at the tool boundary** — every tool declares a capability and a risk level. An agent
   is never even shown a tool it cannot call.
-- **Human approval** — `DANGEROUS` tools park and wait for a decision in the PWA. Nothing executes
-  meanwhile.
+- **Human approval** — `DANGEROUS` tools, and anything that leaves the machine, park for a
+  decision. The approval matches that exact call, expires, and works once.
 - **Budgets and loop guards** — per-mission caps on tasks, depth, tokens, time and tool calls.
   Exhaustion fails the mission with a reason instead of burning your API quota.
 - **Crash recovery** — all state is written to the database at every transition. On boot, tasks
@@ -151,6 +151,7 @@ API keys — both optional, and Jarvis runs without either:
 | `DATABASE_URL` | _(none)_ | Unset → SQLite. Postgres URL → durable storage. |
 | `JARVIS_DB_PATH` | `jarvis_system.db` | SQLite file location. |
 | `JARVIS_DEBUG` | `false` | Verbose logging. |
+| `JARVIS_APPROVAL_TTL_SECONDS` | `900` | How long one approved tool call stays usable. Single-use either way. |
 
 > **Model note.** The original design document specified `llama-3.3-70b-versatile` as the primary
 > Groq engine. Groq is shutting that model down on **2026-08-16**, so the default here is
@@ -282,6 +283,9 @@ Android-only.
 
 - The passcode is a single shared secret — enough to keep a reachable URL from being wide open, not
   a substitute for real auth. JWT + WebAuthn passkeys come later.
+- Tool calls are denied unless the tool is registered and the agent holds its capability.
+  `external` and `dangerous` tools also need an approval of that exact call. The matrix is
+  `docs/architecture/permission-matrix.md`.
 - Secrets are read from the environment and handed only to the engine client that needs them.
   Nothing secret is committed; `.env` is gitignored.
 - Gemini's free tier may use prompts to improve Google's products. Fine for mood check-ins; worth
