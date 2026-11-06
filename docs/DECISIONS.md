@@ -354,3 +354,26 @@ lease that has not actually lapsed, and duplicate work.
 
 `chrony` on every node, installed by the provisioning playbook. Cheap insurance against a whole
 class of distributed-systems bug.
+
+---
+
+## D-026 · Personal tasks are not mission steps, and agents only suggest
+
+`work_tasks` is a third list. Mission `tasks` are steps the scheduler runs.
+Todos are the two-track focus tool. Personal tasks are the user's own items:
+a title, notes, an IST due time, a priority, tags, and an optional link to a
+mission, a brand, or a content item.
+
+A due value with no timezone is Asia/Kolkata. The machine clock is not
+consulted, because the host runs in UTC and an evening reminder would land
+on the wrong evening.
+
+Recurrence is daily, weekly, or monthly. Completing an occurrence files the
+next one in the same series. Monthly recurrence clamps the day, so 31 January
+is followed by 28 February, and that occurrence is followed by 28 March.
+
+An agent tool can only insert `suggested`. The store refuses any other status
+from an agent. The user accepts a suggestion before it is open, and only an
+open task can be completed. The table is not named `tasks` because that name
+is the mission graph.
+

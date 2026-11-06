@@ -84,6 +84,18 @@
     <div id="mission-list" class="mission-list"></div>
   </section>
 
+  <section class="card" aria-labelledby="tasks-heading">
+    <h2 id="tasks-heading">Tasks</h2>
+    <p class="hint">Due times are IST. A suggestion stays off the list until you accept it.</p>
+    <form id="task-form" class="task-form">
+      <input id="task-title" type="text" maxlength="300" autocomplete="off"
+             placeholder="Add a task…" aria-label="Task title" required />
+      <input id="task-due" type="datetime-local" aria-label="Due date and time, IST" />
+      <button type="submit" class="primary">Add</button>
+    </form>
+    <div id="task-list" class="task-list"></div>
+  </section>
+
   <!-- Memory -->
   <section class="card" aria-labelledby="memory-heading">
     <h2 id="memory-heading">Memory</h2>

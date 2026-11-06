@@ -106,6 +106,16 @@ html, body {
   padding: 16px;
 }
 .card h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; color: var(--text-dim); }
+
+.task-form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.task-form input[type="text"] { flex: 1 1 160px; }
+.task-form input[type="datetime-local"] { flex: 1 1 140px; color-scheme: dark; }
+.task-list { display: flex; flex-direction: column; gap: 10px; }
+.task-item { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.task-item p { margin: 0; color: var(--text-dim); font-size: 13px; }
+.task-actions { display: flex; gap: 8px; }
+.task-actions button { font-size: 13px; }
+.task-suggested { color: var(--warn); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
 .hint { margin: -4px 0 12px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
 
 /* ---------- Mood ---------- */
@@ -133,7 +143,7 @@ html, body {
 .mood-btn:active { transform: scale(0.94); }
 .mood-btn.selected { border-color: var(--accent); background: rgba(91, 140, 255, 0.14); color: var(--text); }
 
-textarea, input[type="text"], input[type="password"] {
+textarea, input[type="text"], input[type="password"], input[type="datetime-local"] {
   width: 100%;
   background: var(--surface-2);
   border: 1px solid var(--border);

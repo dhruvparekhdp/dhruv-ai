@@ -104,8 +104,9 @@ app/
     gateway.py             live sockets, capability placement, dispatch
   tools/
     registry.py            capability + risk + JSON schema; permission check lives here
-    cloud/                 memory, web (run in-process)
+    cloud/                 memory, web, tasks (run in-process)
     node/                  fs, shell, system (declared here, run on a node)
+  work_tasks/              personal tasks; agents may only suggest
 nodes/pc/agent.py          the agent that runs on each machine
   services/websocket_manager.py
   static/                  vanilla PWA, no build step

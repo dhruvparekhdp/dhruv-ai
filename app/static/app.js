@@ -25,6 +25,7 @@
     stats: $("stats"), exportBtn: $("export-btn"),
     engineBadge: $("engine-badge"), storageBadge: $("storage-badge"),
     missionForm: $("mission-form"), missionInput: $("mission-input"), missionList: $("mission-list"),
+    taskForm: $("task-form"), taskTitle: $("task-title"), taskDue: $("task-due"), taskList: $("task-list"),
     approvals: $("approvals"), approvalList: $("approval-list"),
     memoryForm: $("memory-search-form"), memoryQuery: $("memory-query"),
     memoryScopes: $("memory-scopes"), memoryMethod: $("memory-method"),
@@ -273,7 +274,87 @@
       pushLog("error", `Could not load missions: ${err.message}`);
     }
     refreshApprovals();
+    refreshTasks();
     return anyActive;
+  }
+
+  el.taskForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = el.taskTitle.value.trim();
+    if (!title) return;
+    // datetime-local has no zone. The field is labelled IST, and a zone-less
+    // value is read as IST by the API. Sending it with a Z would make it UTC.
+    const due = el.taskDue.value ? el.taskDue.value : null;
+    try {
+      await api("/api/v1/tasks", { method: "POST", body: { title, due_at: due } });
+      el.taskTitle.value = "";
+      el.taskDue.value = "";
+      refreshTasks();
+    } catch (err) {
+      pushLog("error", `Could not add task: ${err.message}`);
+    }
+  });
+
+  async function refreshTasks() {
+    try {
+      const list = await api("/api/v1/tasks");
+      el.taskList.innerHTML = "";
+      if (!list.tasks.length) {
+        el.taskList.textContent = "No open tasks.";
+        return;
+      }
+      for (const task of list.tasks) {
+        el.taskList.appendChild(renderTask(task));
+      }
+    } catch (err) {
+      pushLog("error", `Could not load tasks: ${err.message}`);
+    }
+  }
+
+  function renderTask(task) {
+    const item = document.createElement("article");
+    item.className = "task-item";
+    if (task.status === "suggested") {
+      const flag = document.createElement("span");
+      flag.className = "task-suggested";
+      flag.textContent = "Suggested";
+      item.appendChild(flag);
+    }
+    const title = document.createElement("strong");
+    title.textContent = task.title;
+    item.appendChild(title);
+    const meta = document.createElement("p");
+    const due = task.due_at_ist ? `Due ${task.due_at_ist}` : "No due time";
+    const tags = (task.tags || []).join(", ");
+    meta.textContent = tags ? `${due} · ${tags}` : due;
+    item.appendChild(meta);
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+    if (task.status === "suggested") {
+      actions.appendChild(taskButton("Accept", () => postTask(task.task_id, "accept")));
+    } else if (task.status === "open") {
+      actions.appendChild(taskButton("Complete", () => postTask(task.task_id, "complete")));
+    }
+    item.appendChild(actions);
+    return item;
+  }
+
+  function taskButton(label, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "primary";
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  async function postTask(taskId, action) {
+    try {
+      await api(`/api/v1/tasks/${encodeURIComponent(taskId)}/${action}`, { method: "POST" });
+      refreshTasks();
+    } catch (err) {
+      pushLog("error", `Could not ${action} task: ${err.message}`);
+    }
   }
 
   function renderMission(mission) {
