@@ -14,23 +14,26 @@ Three properties matter more than the loop itself:
    dependency results. There is no growing global buffer, so one mission's
    context cannot leak into another's.
 
-3. **Every tool call is permission-checked at the boundary**, and dangerous
-   ones park for human approval rather than executing optimistically.
+3. **Every tool call is permission-checked at the boundary.** The handler is
+   reached only through `execute_tool`. External and dangerous calls run only
+   when a stored approval still matches that exact call.
 """
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-from app.agents.registry import AgentDefinition
 from app.agent.engines import EngineError, EngineRouter, ToolCall
-from app.tools.registry import Risk, ToolError, check_permission, registry as tool_registry
+from app.agents.registry import AgentDefinition
+from app.tools.executor import execute_tool
+from app.tools.registry import check_permission
+from app.tools.registry import registry as tool_registry
 
 log = logging.getLogger("jarvis.runner")
 
@@ -65,9 +68,10 @@ class RunResult:
         return self.prompt_tokens + self.completion_tokens
 
 
-#: Called with (tool_name, arguments) when a DANGEROUS tool is requested.
-#: Returns True to proceed, False to refuse. Raising ApprovalRequired parks the task.
-ApprovalHook = Callable[[str, dict[str, Any]], Awaitable[bool]]
+#: Called with (tool_name, arguments) when an action must be approved.
+#: Returns the approval id to proceed, or None to refuse. The executor
+#: recomputes the action hash and consumes that row; a bare yes is not enough.
+ApprovalHook = Callable[[str, dict[str, Any]], Awaitable[str | None]]
 
 
 class AgentRunner:
@@ -187,10 +191,10 @@ class AgentRunner:
         approval_hook: ApprovalHook | None,
         on_event: Callable[[str, str, dict[str, Any]], Awaitable[None]] | None,
     ) -> str:
-        """Permission-check and run one tool call, returning text for the model."""
+        """Ask the executor to run one call. The handler is not reached from here."""
         tool = tool_registry.get(call.name)
         if tool is None:
-            return f"[error: unknown tool '{call.name}']"
+            return f"[denied: unknown tool '{call.name}' is not registered]"
 
         verdict = check_permission(
             tool,
@@ -203,71 +207,27 @@ class AgentRunner:
                 await on_event("permission", f"Denied {call.name}: {verdict.reason}", {})
             return f"[denied: {verdict.reason}]"
 
+        approval_id: str | None = None
         if verdict.needs_approval:
             if approval_hook is None:
                 return "[denied: this tool requires human approval, which is unavailable here]"
-            approved = await approval_hook(call.name, call.arguments)
-            if not approved:
+            granted = await approval_hook(call.name, call.arguments)
+            if not isinstance(granted, str) or not granted:
                 return f"[denied: the user did not approve {call.name}]"
+            approval_id = granted
 
         if on_event:
             await on_event("tool", f"{definition.id} → {call.name}", {"arguments": call.arguments})
 
-        arguments = dict(call.arguments)
-        # Injected out-of-band so the model cannot spoof another mission's scope
-        # or misattribute who wrote a memory entry.
-        arguments["_mission_id"] = mission_id
-        arguments["_agent_id"] = definition.id
-
-        # Node tools do not run here -- they run on a machine in the fleet.
-        # The injected arguments are passed so the boundary filter below is
-        # load-bearing rather than decorative.
-        if tool.requires_node:
-            return await self._dispatch_to_node(tool, arguments)
-
-        try:
-            outcome = tool.handler(**arguments)
-            if inspect.isawaitable(outcome):
-                outcome = await outcome
-            return str(outcome)
-        except ToolError as exc:
-            return f"[error: {exc}]"
-        except TypeError as exc:
-            return f"[error: bad arguments for {call.name}: {exc}]"
-        except Exception as exc:  # noqa: BLE001 - never let a tool kill the task
-            log.exception("tool %s raised", call.name)
-            return f"[error: {call.name} failed: {exc}]"
-
-
-    async def _dispatch_to_node(self, tool: Any, arguments: dict[str, Any]) -> str:
-        """Send a node tool to a machine in the fleet and return its output.
-
-        Underscore-prefixed keys are orchestrator internals (mission scope,
-        calling agent). They are stripped here because the node has never heard
-        of them and its tool signatures would reject them.
-
-        A missing node is reported plainly rather than silently falling back to
-        running the work here -- that is what keeps "isolated sandbox" a
-        boundary rather than a label.
-        """
-        from app.nodes.gateway import NoNodeAvailable, gateway
-
-        try:
-            outcome = await gateway.dispatch(
-                tool=tool.name,
-                arguments={k: v for k, v in arguments.items() if not k.startswith("_")},
-                capability=tool.node_capability,
-                untrusted=tool.untrusted,
-            )
-        except NoNodeAvailable as exc:
-            return f"[unavailable: {exc}]"
-        except Exception as exc:  # noqa: BLE001 - a node fault must not kill the task
-            log.exception("node dispatch failed for %s", tool.name)
-            return f"[error: {tool.name} failed on the node: {exc}]"
-
-        if not outcome.get("ok"):
-            return f"[error: {outcome.get('error') or 'node reported failure'}]"
-        return str(outcome.get("output", ""))
+        return await execute_tool(
+            call.name,
+            dict(call.arguments),
+            granted_capabilities=definition.capabilities,
+            allowed_tools=definition.tools,
+            mission_id=mission_id,
+            agent_id=definition.id,
+            approval_id=approval_id,
+        )
 
 
 def _build_user_message(objective: str, context: str) -> str:

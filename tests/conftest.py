@@ -51,6 +51,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("JARVIS_PASSCODE", TEST_PASSCODE)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("JARVIS_APPROVAL_TTL_SECONDS", raising=False)
 
     if TEST_DATABASE_URL:
         monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)

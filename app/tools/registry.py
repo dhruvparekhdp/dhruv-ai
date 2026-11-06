@@ -19,6 +19,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, Protocol
 
 from app.nodes.models import NodeCapability
+from app.tools.policy import PolicyLevel
 
 
 class Capability(str, Enum):
@@ -53,6 +54,8 @@ class Tool:
     parameters: dict[str, Any]          # JSON Schema for the arguments object
     capability: Capability
     risk: Risk
+    #: What the action does. This, not the prompt, decides whether it parks.
+    policy: PolicyLevel
     handler: ToolHandler
     #: Tools that must run on a device node rather than in-process.
     requires_node: bool = False
@@ -106,6 +109,7 @@ class ToolRegistry:
                 "description": tool.description,
                 "capability": tool.capability.value,
                 "risk": tool.risk.value,
+                "policy": tool.policy.value,
                 "requires_node": tool.requires_node,
                 "node_capability": tool.node_capability.value if tool.requires_node else None,
                 "untrusted": tool.untrusted,
@@ -142,6 +146,13 @@ def check_permission(
             reason=f"'{tool.name}' requires {tool.capability.value}, which this agent lacks",
         )
 
+    # External calls (the network) park even when the older risk label is SAFE.
+    # The line below is the irreversible-action gate and stays specific to
+    # DANGEROUS: widening it to SENSITIVE would train the operator to approve
+    # routine writes without reading them.
+    if tool.policy.requires_approval and tool.risk is not Risk.DANGEROUS:
+        return PermissionVerdict(True, needs_approval=True, reason="external action requires approval")
+
     if tool.risk is Risk.DANGEROUS:
         return PermissionVerdict(True, needs_approval=True, reason="dangerous tool requires approval")
 
@@ -159,6 +170,7 @@ def tool(
     parameters: dict[str, Any],
     capability: Capability,
     risk: Risk,
+    policy: PolicyLevel,
     requires_node: bool = False,
     node_capability: NodeCapability = NodeCapability.EXECUTE,
     untrusted: bool = False,
@@ -173,6 +185,7 @@ def tool(
                 parameters=parameters,
                 capability=capability,
                 risk=risk,
+                policy=policy,
                 handler=handler,
                 requires_node=requires_node,
                 node_capability=node_capability,

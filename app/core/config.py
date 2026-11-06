@@ -26,6 +26,20 @@ def _env_bool(key: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _env_int(key: str, default: int, *, minimum: int) -> int:
+    """Parse an integer setting. A typo or a too-small value keeps the default."""
+    raw = _env(key)
+    if not raw:
+        return default
+    try:
+        value = int(raw, 10)
+    except ValueError:
+        return default
+    if value < minimum:
+        return default
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     """Immutable runtime settings snapshot."""
@@ -54,6 +68,11 @@ class Settings:
     # postgres://... -> Neon/any Postgres, and telemetry survives redeploys.
     database_url: str
     sqlite_path: str
+
+    # --- Approvals ------------------------------------------------------
+    # How long an approval of one exact tool call stays usable. Single-use
+    # either way: consuming it or letting this elapse both end it.
+    approval_ttl_seconds: int
 
     # --- Misc ------------------------------------------------------------
     app_name: str
@@ -93,6 +112,7 @@ def get_settings() -> Settings:
         passcode=_env("JARVIS_PASSCODE"),
         database_url=_env("DATABASE_URL"),
         sqlite_path=_env("JARVIS_DB_PATH", "jarvis_system.db"),
+        approval_ttl_seconds=_env_int("JARVIS_APPROVAL_TTL_SECONDS", 15 * 60, minimum=1),
         app_name=_env("JARVIS_APP_NAME", "Jarvis"),
         debug=_env_bool("JARVIS_DEBUG", False),
     )

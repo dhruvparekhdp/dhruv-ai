@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from app.nodes.models import NodeCapability
 from app.tools.node._base import not_local
+from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, tool
 
 _PATH = {"type": "string", "description": "Path on the node, inside its allowed roots."}
@@ -20,6 +21,7 @@ tool(
     parameters={"type": "object", "properties": {"path": _PATH}, "required": []},
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.READ,
     requires_node=True,
     node_capability=NodeCapability.EXECUTE,
 )(not_local)
@@ -30,6 +32,7 @@ tool(
     parameters={"type": "object", "properties": {"path": _PATH}, "required": ["path"]},
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.READ,
     requires_node=True,
     node_capability=NodeCapability.EXECUTE,
 )(not_local)
@@ -44,6 +47,7 @@ tool(
     },
     capability=Capability.WRITE,
     risk=Risk.SENSITIVE,
+    policy=PolicyLevel.INTERNAL_WRITE,
     requires_node=True,
     node_capability=NodeCapability.EXECUTE,
 )(not_local)
@@ -55,6 +59,7 @@ tool(
     capability=Capability.WRITE,
     # Irreversible and on real hardware, so it always parks for approval.
     risk=Risk.DANGEROUS,
+    policy=PolicyLevel.DANGEROUS,
     requires_node=True,
     node_capability=NodeCapability.EXECUTE,
 )(not_local)

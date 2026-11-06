@@ -334,14 +334,20 @@ class MissionScheduler:
     # -- approval --------------------------------------------------------
 
     def _approval_hook(self, mission: Mission, task: Task, agent_id: str):
-        async def hook(tool_name: str, arguments: dict[str, Any]) -> bool:
+        async def hook(tool_name: str, arguments: dict[str, Any]) -> str | None:
+            from app.tools.registry import registry as tool_registry
+
+            registered = tool_registry.get(tool_name)
+            # The row stores the policy level. The hash is computed from the
+            # arguments inside create_approval, and execution recomputes it.
+            level = registered.policy.value if registered is not None else "dangerous"
             approval_id = store.create_approval(
                 mission_id=mission.mission_id,
                 task_id=task.task_id,
                 agent_id=agent_id,
                 tool_name=tool_name,
                 tool_arguments=arguments,
-                risk="DANGEROUS",
+                risk=level,
             )
             store.update_task(task.task_id, status=TaskStatus.NEEDS_APPROVAL)
             store.update_mission(mission.mission_id, status=MissionStatus.NEEDS_APPROVAL)
@@ -365,12 +371,14 @@ class MissionScheduler:
                         f"{tool_name} {'approved' if approved else 'denied'}",
                         mission_id=mission.mission_id, approval_id=approval_id, approved=approved,
                     )
-                    return approved
+                    # The id is not permission to run. The executor consumes the
+                    # row only when the hash of the call still matches.
+                    return approval_id if approved else None
 
             store.decide_approval(approval_id, ApprovalDecision.DENIED, decided_by="timeout")
             store.update_task(task.task_id, status=TaskStatus.RUNNING)
             store.update_mission(mission.mission_id, status=MissionStatus.RUNNING)
-            return False
+            return None
 
         return hook
 

@@ -17,7 +17,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.core.db import ddl_types, execute, execute_script, fetch_all, fetch_one, get_conn
+from app.core.db import ddl_types, execute, execute_script, fetch_all, fetch_one, get_conn, is_postgres, q
 from app.missions.models import (
     ApprovalDecision,
     Budget,
@@ -28,6 +28,18 @@ from app.missions.models import (
     new_approval_id,
     new_message_id,
 )
+
+
+def _existing_columns(conn: Any, table: str) -> set[str]:
+    if is_postgres():
+        rows = fetch_all(
+            conn,
+            "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
+            (table,),
+        )
+        return {row["column_name"] for row in rows}
+    rows = fetch_all(conn, f"PRAGMA table_info({table})", ())
+    return {row["name"] for row in rows}
 
 
 def _now() -> str:
@@ -118,7 +130,10 @@ def init_db() -> None:
         tool_arguments {json},
         risk          TEXT NOT NULL,
         decision      TEXT NOT NULL,
-        decided_by    TEXT DEFAULT ''
+        decided_by    TEXT DEFAULT '',
+        params_hash   TEXT NOT NULL DEFAULT '',
+        expires_at    {ts},
+        consumed_at   {ts}
     );
 
     CREATE INDEX IF NOT EXISTS idx_tasks_mission   ON tasks(mission_id);
@@ -129,6 +144,16 @@ def init_db() -> None:
 
     with get_conn() as conn:
         execute_script(conn, script)
+        # Databases created before the hash columns existed keep their rows.
+        # A missing expiry fails closed: consume_approval treats NULL as expired.
+        have = _existing_columns(conn, "approvals")
+        for column, spec in {
+            "params_hash": "TEXT NOT NULL DEFAULT ''",
+            "expires_at": "{ts}",
+            "consumed_at": "{ts}",
+        }.items():
+            if column not in have:
+                execute(conn, f"ALTER TABLE approvals ADD COLUMN {column} {spec.format(**t)}")
 
 
 # --------------------------------------------------------------------------
@@ -434,22 +459,97 @@ def create_approval(
     tool_name: str,
     tool_arguments: dict[str, Any],
     risk: str,
+    expires_at: str | None = None,
 ) -> str:
+    """Park one exact action.
+
+    `params_hash` is the digest of the tool name and these arguments. Execution
+    recomputes that digest and refuses the call when it differs. The row
+    expires at `expires_at` (default 15 minutes) and can be consumed once.
+    """
+    from app.core.config import get_settings
+    from app.tools.policy import action_hash
+
     approval_id = new_approval_id()
+    digest = action_hash(tool_name, tool_arguments)
+    expiry = expires_at or _future(get_settings().approval_ttl_seconds)
     with get_conn() as conn:
         execute(
             conn,
             """
             INSERT INTO approvals (approval_id, mission_id, task_id, created_at, decided_at,
-                                   agent_id, tool_name, tool_arguments, risk, decision, decided_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   agent_id, tool_name, tool_arguments, risk, decision,
+                                   decided_by, params_hash, expires_at, consumed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 approval_id, mission_id, task_id, _now(), None, agent_id, tool_name,
                 json.dumps(tool_arguments), risk, ApprovalDecision.PENDING.value, "",
+                digest, expiry, None,
             ),
         )
     return approval_id
+
+
+def consume_approval(
+    approval_id: str,
+    *,
+    tool_name: str,
+    tool_arguments: dict[str, Any],
+    mission_id: str,
+    now: datetime | None = None,
+) -> str | None:
+    """Use one approval for this exact call. Returns a reason, or None.
+
+    None means the row was marked used and the handler may run. A mismatch,
+    a second use, or an expiry does not mark the row used, except that a
+    second use is reported because the first use already did.
+    """
+    from app.tools.policy import action_hash
+
+    try:
+        digest = action_hash(tool_name, tool_arguments)
+    except TypeError:
+        return "approval was for a different action"
+
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+
+    with get_conn() as conn:
+        row = fetch_one(conn, "SELECT * FROM approvals WHERE approval_id = ?", (approval_id,))
+        if row is None:
+            return "unknown approval"
+        if row["mission_id"] != mission_id:
+            return "approval does not belong to this mission"
+        if row["params_hash"] != digest:
+            return "approval was for a different action"
+        if row["decision"] != ApprovalDecision.APPROVED.value:
+            return "approval was not granted"
+        if row["consumed_at"] is not None:
+            return "approval was already used"
+        expires = _parse_ts(row["expires_at"])
+        if expires is None or expires <= moment:
+            return "approval has expired"
+        cursor = conn.execute(
+            q(
+                """
+                UPDATE approvals SET consumed_at = ?
+                WHERE approval_id = ? AND decision = ? AND consumed_at IS NULL
+                  AND params_hash = ? AND mission_id = ?
+                """
+            ),
+            (
+                moment.isoformat(timespec="microseconds"),
+                approval_id,
+                ApprovalDecision.APPROVED.value,
+                digest,
+                mission_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            return "approval was already used"
+    return None
 
 
 def decide_approval(approval_id: str, decision: ApprovalDecision, decided_by: str = "user") -> bool:
@@ -469,14 +569,17 @@ def decide_approval(approval_id: str, decision: ApprovalDecision, decided_by: st
     return True
 
 
+def _stamp_approval(row: dict[str, Any]) -> dict[str, Any]:
+    row["tool_arguments"] = _loads(row["tool_arguments"], {})
+    for key in ("created_at", "decided_at", "expires_at", "consumed_at"):
+        row[key] = str(row[key]) if row.get(key) else None
+    return row
+
+
 def get_approval(approval_id: str) -> dict[str, Any] | None:
     with get_conn() as conn:
         row = fetch_one(conn, "SELECT * FROM approvals WHERE approval_id = ?", (approval_id,))
-    if row:
-        row["tool_arguments"] = _loads(row["tool_arguments"], {})
-        row["created_at"] = str(row["created_at"])
-        row["decided_at"] = str(row["decided_at"]) if row["decided_at"] else None
-    return row
+    return _stamp_approval(row) if row else None
 
 
 def list_pending_approvals() -> list[dict[str, Any]]:
@@ -486,11 +589,7 @@ def list_pending_approvals() -> list[dict[str, Any]]:
             "SELECT * FROM approvals WHERE decision = ? ORDER BY created_at ASC",
             (ApprovalDecision.PENDING.value,),
         )
-    for row in rows:
-        row["tool_arguments"] = _loads(row["tool_arguments"], {})
-        row["created_at"] = str(row["created_at"])
-        row["decided_at"] = str(row["decided_at"]) if row["decided_at"] else None
-    return rows
+    return [_stamp_approval(row) for row in rows]
 
 
 # --------------------------------------------------------------------------
