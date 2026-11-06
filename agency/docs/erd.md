@@ -42,6 +42,7 @@ erDiagram
     ContentIdea ||--o{ ContentItem : "may become"
     Channel ||--o{ ContentItem : carries
     Campaign ||--o{ ContentItem : "may group"
+    ContentItem ||--o{ ContentItem : "duplicated as a new draft"
     ContentItem ||--o{ ContentRevision : revises
     Brand ||--o{ CalendarSlot : scopes
     Channel ||--o{ CalendarSlot : schedules
@@ -146,6 +147,7 @@ erDiagram
         text idea_id FK
         text channel_id FK
         text campaign_id FK
+        text source_item_id FK "copy link, own brand_id"
         text status
     }
     ContentRevision {
