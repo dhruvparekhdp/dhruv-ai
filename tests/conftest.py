@@ -34,6 +34,15 @@ _TABLES = (
     "tool_executions", "mood_checkins", "agent_trajectories", "sessions",
     "agent_messages", "approvals", "tasks", "missions", "memory_entries",
     "nodes", "node_enrolments", "todos", "todo_tracks",
+    # Agency tables. CASCADE makes order irrelevant on Postgres; children are
+    # listed first anyway so a future drop without CASCADE still works.
+    "agy_estimate_lines", "agy_estimates", "agy_service_templates",
+    "agy_research_notes", "agy_competitors", "agy_metric_entries",
+    "agy_kpi_definitions", "agy_approvals", "agy_calendar_slots",
+    "agy_content_revisions", "agy_content_items", "agy_content_ideas",
+    "agy_templates", "agy_channels", "agy_campaigns", "agy_deliverables",
+    "agy_tasks", "agy_projects", "agy_lead_stage_history", "agy_leads",
+    "agy_contacts", "agy_clients", "agy_brands", "agy_schema_migrations",
 )
 
 

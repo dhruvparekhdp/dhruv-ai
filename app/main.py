@@ -45,6 +45,9 @@ from app.todos import reminders as todo_reminders
 from app.todos import seed as todo_seed
 from app.todos import store as todo_store
 from app.todos.models import TodoError
+from agency.migrate import migrate_up
+from agency.router import router as agency_router
+from agency.seed import seed_if_empty
 from app.tools import cloud as _cloud_tools  # noqa: F401 - import registers the tools
 from app.tools import node as _node_tools    # noqa: F401 - import registers the tools
 from app.tools.registry import registry as tool_registry
@@ -73,6 +76,16 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     seeded = todo_seed.seed_if_empty()
     if seeded:
         log.info("Seeded %d starting todos.", seeded)
+
+    # Agency tables are versioned separately from the orchestrator schema.
+    # seed_if_empty also migrates, but the applied list is logged here so a
+    # boot that changed the schema says so.
+    applied = migrate_up()
+    if applied:
+        log.info("agency migrations applied: %s", ", ".join(applied))
+    seeded_brands = seed_if_empty()
+    if seeded_brands:
+        log.info("Seeded %d agency brands.", seeded_brands)
 
     # Tools are registered by the import above; agent definitions are validated
     # against them here, so a bad definition fails loudly at boot rather than
@@ -130,6 +143,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Own prefix and own tables. The passcode dependency sits on the router
+# itself: this path is not under /api/v1, where the rest of the gate lives,
+# and leaving it open would expose client records on a reachable host.
+app.include_router(agency_router, prefix="/api/agency")
 
 Guarded = Annotated[None, Depends(require_passcode)]
 
