@@ -6,13 +6,15 @@ agency API on a reachable host would publish the client's list to anyone who
 can find the URL.
 
 Writes cover brands, clients, contacts, content drafts, the brand profile,
-and the access checklist. Listing a client, contact, content item, profile,
-or checklist requires ``brand_id``. The other entities are in the schema and
+the access checklist, and calendar slots. Channel templates are a shared
+catalog. Listing a client, contact, content item, profile, checklist, or
+calendar requires ``brand_id``. The other entities are in the schema and
 the database, and gain routes when a later ticket needs them.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -20,7 +22,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 
-from agency import content, onboarding, store, workflow
+from agency import calendar as agency_calendar
+from agency import content, onboarding, store, templates, workflow
 from agency.models import AgencyConflict, AgencyError
 from agency.schemas import (
     AccessItemCreate,
@@ -30,6 +33,7 @@ from agency.schemas import (
     BrandProfileCreate,
     BrandProfileUpdate,
     BrandUpdate,
+    CalendarSlotCreate,
     ChannelCreate,
     ClientCreate,
     ClientUpdate,
@@ -39,7 +43,9 @@ from agency.schemas import (
     ContentItemCreate,
     ContentItemUpdate,
     DuplicateContentRequest,
+    RescheduleSlotRequest,
     ScheduleContentRequest,
+    TemplateValidateRequest,
     TransitionRequest,
 )
 from app.core.security import require_passcode
@@ -460,6 +466,102 @@ async def create_channel(body: ChannelCreate) -> dict[str, Any]:
         )
     )
     return {"status": "success", "channel": channel.to_dict()}
+
+
+@router.get("/channel-templates")
+async def list_channel_templates(
+    platform: str = Query(default="", max_length=40),
+) -> dict[str, Any]:
+    """Seeded formats. The list is the same for every brand."""
+    rows = _call(lambda: templates.list_templates(platform or None))
+    return {"status": "success", "count": len(rows), "templates": rows}
+
+
+@router.get("/channel-templates/{template_id}")
+async def get_channel_template(template_id: str) -> dict[str, Any]:
+    row = _call(lambda: templates.get_template(template_id))
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown template.")
+    return {"status": "success", "template": row}
+
+
+@router.post("/channel-templates/{template_id}/validate")
+async def validate_channel_template(
+    template_id: str, body: TemplateValidateRequest
+) -> dict[str, Any]:
+    """Check character limits. The draft is not stored and nothing is published."""
+    result = _call(lambda: templates.validate_template(template_id, body.fields))
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown template.")
+    return {"status": "success", **result.to_dict()}
+
+
+@router.get("/calendar/slots")
+async def list_calendar_slots(
+    starts_from: datetime,
+    starts_to: datetime,
+    brand_id: str = Query(min_length=1, max_length=40),
+    channel_id: str = Query(default="", max_length=40),
+) -> dict[str, Any]:
+    rows = _call(
+        lambda: agency_calendar.list_slots(
+            brand_id,
+            channel_id=channel_id or None,
+            starts_from=starts_from,
+            starts_to=starts_to,
+        )
+    )
+    return {"status": "success", "count": len(rows), "slots": rows}
+
+
+@router.post("/calendar/slots", status_code=status.HTTP_201_CREATED)
+async def create_calendar_slot(body: CalendarSlotCreate) -> dict[str, Any]:
+    """Save a local slot. This does not publish or change the content workflow."""
+    slot, clashes = _call(
+        lambda: agency_calendar.create_slot(
+            body.brand_id,
+            body.starts_at,
+            channel_id=body.channel_id,
+            content_item_id=body.content_item_id,
+            title=body.title,
+            status=body.status,
+            ends_at=body.ends_at,
+        )
+    )
+    return {
+        "status": "success",
+        "published": False,
+        "conflict": bool(clashes),
+        "conflicts": [agency_calendar.warning(item) for item in clashes],
+        "slot": slot.to_dict(),
+    }
+
+
+@router.post("/calendar/slots/{slot_id}/reschedule")
+async def reschedule_calendar_slot(
+    slot_id: str,
+    body: RescheduleSlotRequest,
+    brand_id: str = Query(min_length=1, max_length=40),
+) -> dict[str, Any]:
+    """Move a slot on this host. The channel is unchanged and nothing is sent."""
+    moved = _call(
+        lambda: agency_calendar.reschedule(
+            brand_id,
+            slot_id,
+            body.starts_at,
+            **({"ends_at": body.ends_at} if "ends_at" in body.model_fields_set else {}),
+        )
+    )
+    if moved is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown calendar slot.")
+    slot, clashes = moved
+    return {
+        "status": "success",
+        "published": False,
+        "conflict": bool(clashes),
+        "conflicts": [agency_calendar.warning(item) for item in clashes],
+        "slot": slot.to_dict(),
+    }
 
 
 # --------------------------------------------------------------------------

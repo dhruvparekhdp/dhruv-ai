@@ -1,8 +1,9 @@
 """Agency domain model.
 
-Brand is the root. Every other record carries ``brand_id`` and is meaningless
-without it: a content item, a project and a campaign are always work for one
-brand, never a global pool. ``Brand`` itself has no ``brand_id``.
+Brand is the root. Every content, project and campaign record carries
+``brand_id`` and is meaningless without it. ``Brand`` itself has no
+``brand_id``. The channel-template catalog is shared reference data seeded
+for every brand, not a customer's content, so those two tables do not either.
 
 A ``Client`` is the commercial relationship, owned by a personal or agency
 brand. A brand of kind ``client`` is that customer's own workspace (the place
@@ -71,6 +72,14 @@ BRAND_SCOPED_TABLES: tuple[str, ...] = (
     "agy_estimate_lines",
     "agy_brand_profiles",
     "agy_access_items",
+)
+
+# Shared definitions seeded by migration 0005. Not content, a project, or a
+# campaign, so they are not brand-scoped. A filled-in template is checked
+# against this catalog and is not stored here.
+CATALOG_TABLES: tuple[str, ...] = (
+    "agy_channel_templates",
+    "agy_template_fields",
 )
 
 # The invariant called out by name: content, project and campaign records.
@@ -145,14 +154,30 @@ class DeliverableStatus(str, Enum):
 
 
 class ChannelKind(str, Enum):
+    """Where a slot can sit. Naming a channel does not connect that network."""
+
     BLOG = "blog"
     NEWSLETTER = "newsletter"
     LINKEDIN = "linkedin"
     INSTAGRAM = "instagram"
     X = "x"
     YOUTUBE = "youtube"
+    FACEBOOK = "facebook"
+    WEBSITE = "website"
+    GOOGLE_ADS = "google_ads"
     PODCAST = "podcast"
     OTHER = "other"
+
+
+class ChannelPlatform(str, Enum):
+    """A seeded template family. Validation does not publish or change ads."""
+
+    INSTAGRAM = "instagram"
+    YOUTUBE = "youtube"
+    LINKEDIN = "linkedin"
+    FACEBOOK = "facebook"
+    WEBSITE = "website"
+    GOOGLE_ADS = "google_ads"
 
 
 class TemplateKind(str, Enum):
@@ -475,6 +500,31 @@ class CalendarSlot(Model):
     ends_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+@dataclass
+class ChannelTemplate(Model):
+    """One seeded format, shared by every brand. Filling it in is a later write."""
+
+    id: str
+    platform: ChannelPlatform
+    slug: str
+    name: str
+    sort_order: int = 0
+
+
+@dataclass
+class TemplateField(Model):
+    """A character limit on one part of a template. ``min_count`` may be zero."""
+
+    id: str
+    template_id: str
+    field_key: str
+    label: str
+    max_chars: int
+    min_count: int = 1
+    max_count: int = 1
+    sort_order: int = 0
 
 
 @dataclass

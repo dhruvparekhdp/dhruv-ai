@@ -41,6 +41,7 @@ from agency.models import (
     CalendarSlotStatus,
     CampaignStatus,
     ChannelKind,
+    ChannelPlatform,
     ClientStatus,
     ContentIdeaStatus,
     ContentItemStatus,
@@ -491,6 +492,41 @@ class CalendarSlotRead(APIModel):
     ends_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class RescheduleSlotRequest(APIModel):
+    """Move a slot on this host. Applying it does not publish the slot."""
+
+    starts_at: datetime
+    ends_at: datetime | None = None
+
+
+class TemplateFieldRead(APIModel):
+    id: str
+    template_id: str
+    field_key: str
+    label: str
+    max_chars: int
+    min_count: int
+    max_count: int
+    sort_order: int
+
+
+class ChannelTemplateRead(APIModel):
+    """A seeded format. It has no brand id: the same definition serves every brand."""
+
+    id: str
+    platform: ChannelPlatform
+    slug: str
+    name: str
+    sort_order: int
+    fields: list[TemplateFieldRead] = Field(default_factory=list)
+
+
+class TemplateValidateRequest(APIModel):
+    """Draft text to check. The handler does not store it."""
+
+    fields: dict[str, str | list[str]] = Field(default_factory=dict)
 
 
 class ApproverCreate(APIModel):
