@@ -428,6 +428,7 @@ class EngineRouter:
                 continue
 
             result.fallbacks = fallbacks
+            log.info("adapter call provider=%s model=%s", engine.provider, result.model)
             return result
 
         raise EngineError("all engines failed, including local fallback")
@@ -461,6 +462,7 @@ class EngineRouter:
                 )
                 if fallbacks:
                     result.reasoning += f" Recovered after {len(fallbacks)} failed engine(s)."
+            log.info("adapter call provider=%s model=%s", engine.provider, result.model)
             log.info(
                 "turn served by %s in %.0fms", engine.provider,
                 (time.perf_counter() - started) * 1000,
