@@ -1,0 +1,44 @@
+# Tooling only. The app is still installed from requirements.txt; this file
+# does not declare a package. Ruff and mypy are strict on purpose. Findings
+# that already exist are pinned in scripts/baselines/ so the current tree
+# passes and a new finding fails `make lint` / `make typecheck`.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["app", "tests", "nodes", "drills", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N",
+    "B", "BLE",
+    "UP",
+    "SIM", "C4", "PIE", "RET",
+    "ASYNC",
+    "S",
+    "PT",
+    "ARG",
+    "PERF",
+    "RUF",
+    "LOG",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Pytest asserts, and fixture arguments that exist only to be injected.
+"tests/**/*.py" = ["S101", "ARG001", "ARG002", "ARG005"]
+# Drill cases embed long teaching strings, and they assert on purpose.
+"drills/**/*.py" = ["S101", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests", "nodes", "drills", "scripts"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# Third-party stubs are not vendored. Missing imports are ignored so the
+# check reports our types, not the absence of groq/fastembed/PyYAML stubs.
+ignore_missing_imports = true
+warn_unused_ignores = true
+show_error_codes = true
+files = ["app", "tests", "nodes", "drills", "mcp_server.py", "scripts"]
+exclude = ["^\\.venv/", "^\\.tools/"]
