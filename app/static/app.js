@@ -447,6 +447,9 @@
     const learned = (entry.created_at || "").slice(0, 10);
     const source = entry.source || "unknown";
     let provenance = `learned ${learned} · from ${source}`;
+    if (entry.source_ref) provenance += ` · ${entry.source_ref}`;
+    if (entry.sensitivity === "private") provenance += " · private";
+    if (entry.supersedes) provenance += " · corrected";
     if (entry.similarity !== undefined) provenance += ` · ${Math.round(entry.similarity * 100)}% match`;
     meta.innerHTML = `<span>${escapeHtml(provenance)}</span>`;
 
