@@ -459,3 +459,24 @@ with its own as-of. The tasks are already SUCCESS. Leaving them READY would
 hand the text to the planner, which can drop an as-of or name a symbol the
 positions read did not return. Performance figures come from the outcome
 arithmetic, not from the engine's performance object.
+
+---
+
+## D-031 · OCR is a read, and a missing service is not a document
+
+`extract_document` posts one local file to `POST /v1/extract` through the
+shared adapter client. The service returns an envelope whose `data.fields`
+each carry a name, a string value, a confidence from 0 to 1, a page, and a
+four-number bbox. The tool text gives the agent the value and the confidence.
+A field whose confidence is strictly below `OCR_REVIEW_CONFIDENCE` (default
+0.8) is marked for review. 0.8 itself is not.
+
+The call is not retried. Uploading the file twice would be a second
+extraction, and the client already refuses to retry anything except GET.
+With `OCR_BASE_URL` unset the adapter is a stub: no socket, no fields. A
+timeout, a 5xx, an open circuit, or a body that is not the envelope is
+reported as unavailable or invalid, and the field list stays empty.
+
+The token is `OCR_API_TOKEN`, read at call time. The local path is not sent;
+only the file's base name is. The tool is capability READ and risk SAFE.
+
