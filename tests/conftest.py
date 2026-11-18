@@ -48,6 +48,7 @@ _TABLES = (
     "agy_tasks", "agy_projects", "agy_lead_stage_history", "agy_leads",
     "agy_contacts", "agy_clients", "agy_brands", "agy_schema_migrations",
     "work_tasks",
+    "alerts",
 )
 
 

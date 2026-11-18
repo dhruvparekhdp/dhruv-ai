@@ -84,6 +84,7 @@ from app.work_tasks.models import TaskError
 from app.tools import cloud as _cloud_tools  # noqa: F401 - import registers the tools
 from app.tools import node as _node_tools    # noqa: F401 - import registers the tools
 from app.adapters.registry import registry as adapter_registry
+from app.alerts import store as alert_store
 from app.tools.registry import registry as tool_registry
 
 configure_logging()
@@ -117,6 +118,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     schedule_store.init_db()
     watcher_store.init_db()
     work_task_store.init_db()
+    alert_store.init_db()
 
     # Only writes on a genuinely empty table, so a restart neither duplicates
     # the backlog nor resurrects finished work.
@@ -742,6 +744,13 @@ async def list_agents(_: Guarded) -> dict[str, Any]:
 async def list_tools(_: Guarded) -> dict[str, Any]:
     tools = tool_registry.describe()
     return {"status": "success", "count": len(tools), "tools": tools}
+
+
+@app.get("/api/v1/alerts", tags=["alerts"])
+async def list_alerts(_: Guarded) -> dict[str, Any]:
+    """Delivered in-app alerts. Quiet-hours rows are stored and not listed."""
+    alerts = alert_store.inbox()
+    return {"status": "success", "count": len(alerts), "alerts": alerts}
 
 
 @app.get("/api/v1/adapters/health", tags=["adapters"])
