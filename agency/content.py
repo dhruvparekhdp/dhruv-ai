@@ -2,7 +2,7 @@
 
 A list or a search only returns the brand it was given. An update cannot
 change ``brand_id``; the way to land a copy in another brand is
-``duplicate_item``, which writes a new draft and does not carry approvals.
+``duplicate_item``, which writes a new idea and does not carry approvals.
 
 ``schedule_item`` records a local schedule after checking that the channel
 belongs to the same brand. It does not post, send, or publish anywhere.
@@ -10,7 +10,6 @@ belongs to the same brand. It does not post, send, or publish anywhere.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from agency.db import agency_conn
@@ -36,33 +35,15 @@ from agency.store import (
     _raise_integrity,
     _require_text,
 )
+from agency.workflow import add_revision, to_item
+from agency.workflow import transition as transition_status
 
 _BODY_MAX = 20_000
 _SEARCH_MAX = 200
-# Statuses a direct edit may set. ``scheduled`` only comes from schedule_item,
-# which is where the channel brand is checked.
-_EDITABLE_STATUSES = {
-    ContentItemStatus.DRAFT,
-    ContentItemStatus.IN_REVIEW,
-    ContentItemStatus.ARCHIVED,
-}
 
 
 def _row_item(row: dict[str, Any]) -> ContentItem:
-    return ContentItem(
-        id=row["id"],
-        brand_id=row["brand_id"],
-        title=row["title"],
-        idea_id=row.get("idea_id"),
-        channel_id=row.get("channel_id"),
-        campaign_id=row.get("campaign_id"),
-        body=row.get("body") or "",
-        status=ContentItemStatus(row["status"]),
-        scheduled_at=_parse_ts(row.get("scheduled_at")),
-        source_item_id=row.get("source_item_id"),
-        created_at=_parse_ts(row.get("created_at")),
-        updated_at=_parse_ts(row.get("updated_at")),
-    )
+    return to_item(row)
 
 
 def _row_channel(row: dict[str, Any]) -> Channel:
@@ -87,19 +68,6 @@ def _like(value: str) -> str:
         .replace("_", "\\_")
     )
     return f"%{escaped}%"
-
-
-def _iso(value: Any, field: str) -> str:
-    if isinstance(value, datetime):
-        aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        return aware.isoformat(timespec="microseconds")
-    text = str(value or "").strip()
-    if not text:
-        raise AgencyError(f"{field} is required.")
-    parsed = _parse_ts(text)
-    if parsed is None:
-        raise AgencyError(f"{field} must be an ISO-8601 timestamp.")
-    return parsed.isoformat(timespec="microseconds")
 
 
 def _same_brand(conn: Any, brand_id: str, table: str, record_id: str | None, field: str) -> str | None:
@@ -151,16 +119,17 @@ def create_item(
     brand_id: str,
     title: str,
     *,
+    author: str,
     body: str = "",
-    status: str | ContentItemStatus = ContentItemStatus.DRAFT,
     channel_id: str | None = None,
     idea_id: str | None = None,
     campaign_id: str | None = None,
     item_id: str | None = None,
 ) -> ContentItem:
-    cleaned_status = _coerce_enum(status, ContentItemStatus, "status")
-    if cleaned_status is ContentItemStatus.SCHEDULED:
-        raise AgencyError("Schedule an item through the schedule action so the channel brand is checked.")
+    """Create an item at ``idea``. Later states go through ``transition``."""
+    title_text = _require_text(title, "title", TITLE_MAX)
+    body_text = _optional_text(body, "body", _BODY_MAX)
+    author_text = _require_text(author, "author", NAME_MAX)
     try:
         with agency_conn() as conn:
             scope = BrandScope(conn, brand_id)
@@ -176,9 +145,9 @@ def create_item(
                 "agy_content_items",
                 {
                     "id": record_id,
-                    "title": _require_text(title, "title", TITLE_MAX),
-                    "body": _optional_text(body, "body", _BODY_MAX),
-                    "status": cleaned_status.value,
+                    "title": title_text,
+                    "body": body_text,
+                    "status": ContentItemStatus.IDEA.value,
                     "channel_id": channel,
                     "idea_id": idea,
                     "campaign_id": campaign,
@@ -187,6 +156,14 @@ def create_item(
                     "created_at": now,
                     "updated_at": now,
                 },
+            )
+            add_revision(
+                scope,
+                item_id=record_id,
+                title=title_text,
+                body=body_text,
+                author=author_text,
+                note="created",
             )
             row = scope.get("agy_content_items", record_id)
     except _INTEGRITY as exc:
@@ -239,10 +216,12 @@ def search_items(brand_id: str, query: str, *, limit: int = 50) -> list[ContentI
 
 
 def update_item(brand_id: str, item_id: str, /, **fields: Any) -> ContentItem | None:
-    """Edit a draft inside its brand. ``brand_id`` in the payload is refused."""
-    unknown = set(fields) - {"title", "body", "status", "brand_id", "channel_id", "source_item_id"}
+    """Edit title or body inside the item's brand. Status is a transition."""
+    unknown = set(fields) - {"title", "body", "author", "brand_id", "channel_id", "source_item_id", "status"}
     if unknown:
         raise AgencyError(f"Unknown field(s): {', '.join(sorted(unknown))}.")
+    if "status" in fields:
+        raise AgencyError("Status changes go through the transition action.")
     if "brand_id" in fields or "channel_id" in fields or "source_item_id" in fields:
         raise AgencyError("Moving a record to another brand is not possible.")
     changes: dict[str, Any] = {}
@@ -250,21 +229,26 @@ def update_item(brand_id: str, item_id: str, /, **fields: Any) -> ContentItem | 
         changes["title"] = _require_text(fields["title"], "title", TITLE_MAX)
     if "body" in fields:
         changes["body"] = _optional_text(fields["body"], "body", _BODY_MAX)
-    if "status" in fields:
-        status = _coerce_enum(fields["status"], ContentItemStatus, "status")
-        if status not in _EDITABLE_STATUSES:
-            raise AgencyError(
-                "Schedule an item through the schedule action so the channel brand is checked."
-            )
-        changes["status"] = status.value
+    author_text = ""
+    if changes:
+        author_text = _require_text(fields.get("author"), "author", NAME_MAX)
     try:
         with agency_conn() as conn:
             scope = BrandScope(conn, brand_id)
+            current = scope.get("agy_content_items", item_id)
+            if current is None:
+                return None
             if changes:
                 changes["updated_at"] = _now()
-            changed = scope.update("agy_content_items", item_id, changes)
-            if changed == 0:
-                return None
+                scope.update("agy_content_items", item_id, changes)
+                add_revision(
+                    scope,
+                    item_id=item_id,
+                    title=changes.get("title", current["title"]),
+                    body=changes.get("body", current.get("body") or ""),
+                    author=author_text,
+                    note="edit",
+                )
             row = scope.get("agy_content_items", item_id)
     except _INTEGRITY as exc:
         _raise_integrity(exc)
@@ -272,12 +256,16 @@ def update_item(brand_id: str, item_id: str, /, **fields: Any) -> ContentItem | 
     return _row_item(row)
 
 
-def duplicate_item(brand_id: str, item_id: str, target_brand_id: str) -> ContentItem | None:
-    """Copy an item into ``target_brand_id`` as a new draft.
+def duplicate_item(
+    brand_id: str, item_id: str, target_brand_id: str, *, author: str
+) -> ContentItem | None:
+    """Copy an item into ``target_brand_id`` as a new idea.
 
     The source stays where it is. The copy has a new id, ``source_item_id``
-    pointing at the source, status ``draft``, no channel, and no approvals.
+    pointing at the source, status ``idea``, no channel, and no approvals.
+    Its first revision is the copy, not the source history.
     """
+    author_text = _require_text(author, "author", NAME_MAX)
     try:
         with agency_conn() as conn:
             source_scope = BrandScope(conn, brand_id)
@@ -287,13 +275,15 @@ def duplicate_item(brand_id: str, item_id: str, target_brand_id: str) -> Content
             target = BrandScope(conn, target_brand_id)
             record_id = new_id("cit")
             now = _now()
+            title = source["title"]
+            body = source.get("body") or ""
             target.insert(
                 "agy_content_items",
                 {
                     "id": record_id,
-                    "title": source["title"],
-                    "body": source.get("body") or "",
-                    "status": ContentItemStatus.DRAFT.value,
+                    "title": title,
+                    "body": body,
+                    "status": ContentItemStatus.IDEA.value,
                     "idea_id": None,
                     "channel_id": None,
                     "campaign_id": None,
@@ -303,6 +293,14 @@ def duplicate_item(brand_id: str, item_id: str, target_brand_id: str) -> Content
                     "updated_at": now,
                 },
             )
+            add_revision(
+                target,
+                item_id=record_id,
+                title=title,
+                body=body,
+                author=author_text,
+                note="duplicated",
+            )
             row = target.get("agy_content_items", record_id)
     except _INTEGRITY as exc:
         _raise_integrity(exc)
@@ -311,42 +309,22 @@ def duplicate_item(brand_id: str, item_id: str, target_brand_id: str) -> Content
 
 
 def schedule_item(
-    brand_id: str, item_id: str, channel_id: str, scheduled_at: Any
+    brand_id: str, item_id: str, channel_id: str, scheduled_at: Any, *, author: str
 ) -> ContentItem | None:
-    """Mark an item scheduled on a channel of the same brand.
+    """Move an approved item to scheduled on a channel of the same brand.
 
     This writes the row on this host. It does not publish the item, send it,
-    or call the channel.
+    or call the channel. ``published`` is a later manual mark.
     """
-    when = _iso(scheduled_at, "scheduled_at")
-    cleaned_channel = _clean_id(channel_id, "channel_id", required=True)
-    assert cleaned_channel is not None
-    try:
-        with agency_conn() as conn:
-            scope = BrandScope(conn, brand_id)
-            item = scope.get("agy_content_items", item_id)
-            if item is None:
-                return None
-            channel = lookup(conn, "agy_channels", cleaned_channel)
-            if channel is None:
-                raise AgencyError(f"Unknown channel_id '{cleaned_channel}'.")
-            if channel["brand_id"] != item["brand_id"] or channel["brand_id"] != scope.brand_id:
-                raise AgencyError("Cannot schedule an item onto a channel from another brand.")
-            scope.update(
-                "agy_content_items",
-                item_id,
-                {
-                    "channel_id": cleaned_channel,
-                    "status": ContentItemStatus.SCHEDULED.value,
-                    "scheduled_at": when,
-                    "updated_at": _now(),
-                },
-            )
-            row = scope.get("agy_content_items", item_id)
-    except _INTEGRITY as exc:
-        _raise_integrity(exc)
-    assert row is not None
-    return _row_item(row)
+    row = transition_status(
+        brand_id,
+        item_id,
+        ContentItemStatus.SCHEDULED,
+        author=author,
+        channel_id=channel_id,
+        scheduled_at=scheduled_at,
+    )
+    return _row_item(row) if row else None
 
 
 def record_approval(brand_id: str, item_id: str, *, note: str = "") -> str:

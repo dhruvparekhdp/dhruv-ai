@@ -20,11 +20,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 
-from agency import content, onboarding, store
+from agency import content, onboarding, store, workflow
 from agency.models import AgencyConflict, AgencyError
 from agency.schemas import (
     AccessItemCreate,
     AccessItemUpdate,
+    ApproverCreate,
     BrandCreate,
     BrandProfileCreate,
     BrandProfileUpdate,
@@ -34,10 +35,12 @@ from agency.schemas import (
     ClientUpdate,
     ContactCreate,
     ContactUpdate,
+    ContentDecisionRequest,
     ContentItemCreate,
     ContentItemUpdate,
     DuplicateContentRequest,
     ScheduleContentRequest,
+    TransitionRequest,
 )
 from app.core.security import require_passcode
 
@@ -299,8 +302,8 @@ async def create_content_item(body: ContentItemCreate) -> dict[str, Any]:
         lambda: content.create_item(
             body.brand_id,
             body.title,
+            author=body.author,
             body=body.body,
-            status=body.status,
             channel_id=body.channel_id,
             idea_id=body.idea_id,
             campaign_id=body.campaign_id,
@@ -339,7 +342,11 @@ async def duplicate_content_item(
     body: DuplicateContentRequest,
     brand_id: str = Query(min_length=1, max_length=40),
 ) -> dict[str, Any]:
-    item = _call(lambda: content.duplicate_item(brand_id, item_id, body.target_brand_id))
+    item = _call(
+        lambda: content.duplicate_item(
+            brand_id, item_id, body.target_brand_id, author=body.author
+        )
+    )
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown content item.")
     return {"status": "success", "item": item.to_dict()}
@@ -353,11 +360,96 @@ async def schedule_content_item(
 ) -> dict[str, Any]:
     """Record a local schedule. This does not publish or send the item."""
     item = _call(
-        lambda: content.schedule_item(brand_id, item_id, body.channel_id, body.scheduled_at)
+        lambda: content.schedule_item(
+            brand_id, item_id, body.channel_id, body.scheduled_at, author=body.author
+        )
     )
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown content item.")
     return {"status": "success", "published": False, "item": item.to_dict()}
+
+
+@router.get("/content/items/{item_id}/revisions")
+async def list_content_revisions(
+    item_id: str, brand_id: str = Query(min_length=1, max_length=40)
+) -> dict[str, Any]:
+    rows = _call(lambda: workflow.list_revisions(brand_id, item_id))
+    if rows is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown content item.")
+    return {
+        "status": "success",
+        "count": len(rows),
+        "revisions": [row.to_dict() for row in rows],
+    }
+
+
+@router.post("/content/items/{item_id}/transition")
+async def transition_content_item(
+    item_id: str,
+    body: TransitionRequest,
+    brand_id: str = Query(min_length=1, max_length=40),
+) -> dict[str, Any]:
+    """Move an item along the workflow. Publishing stores a URL and a date only."""
+    row = _call(
+        lambda: workflow.transition(
+            brand_id,
+            item_id,
+            body.status,
+            author=body.author,
+            note=body.note,
+            channel_id=body.channel_id,
+            scheduled_at=body.scheduled_at,
+            published_url=body.published_url,
+            published_on=body.published_on,
+        )
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown content item.")
+    return {"status": "success", "item": workflow.to_item(row).to_dict()}
+
+
+@router.post("/content/items/{item_id}/decisions", status_code=status.HTTP_201_CREATED)
+async def decide_content_item(
+    item_id: str,
+    body: ContentDecisionRequest,
+    brand_id: str = Query(min_length=1, max_length=40),
+) -> dict[str, Any]:
+    decision = _call(
+        lambda: workflow.record_decision(
+            brand_id, item_id, body.approver_id, body.status, note=body.note
+        )
+    )
+    if decision is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown content item.")
+    return {"status": "success", "approval": decision.to_dict()}
+
+
+@router.get("/approvers")
+async def list_approvers(brand_id: str = Query(min_length=1, max_length=40)) -> dict[str, Any]:
+    rows = _call(lambda: workflow.list_approvers(brand_id))
+    return {
+        "status": "success",
+        "count": len(rows),
+        "approvers": [row.to_dict() for row in rows],
+    }
+
+
+@router.post("/approvers", status_code=status.HTTP_201_CREATED)
+async def create_approver(body: ApproverCreate) -> dict[str, Any]:
+    approver = _call(
+        lambda: workflow.create_approver(body.brand_id, body.name, email=body.email)
+    )
+    return {"status": "success", "approver": approver.to_dict()}
+
+
+@router.delete("/approvers/{approver_id}")
+async def remove_approver(
+    approver_id: str, brand_id: str = Query(min_length=1, max_length=40)
+) -> dict[str, Any]:
+    deleted = _call(lambda: workflow.delete_approver(brand_id, approver_id))
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown approver.")
+    return {"status": "success", "id": approver_id}
 
 
 @router.post("/channels", status_code=status.HTTP_201_CREATED)

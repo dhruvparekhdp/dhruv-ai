@@ -380,12 +380,11 @@ class ContentIdeaRead(APIModel):
 class ContentItemCreate(APIModel):
     brand_id: str = _id_field()
     title: str = Field(min_length=1, max_length=TITLE_MAX)
+    author: str = Field(min_length=1, max_length=NAME_MAX)
     idea_id: str | None = _optional_id_field()
     channel_id: str | None = _optional_id_field()
     campaign_id: str | None = _optional_id_field()
     body: str = Field(default="", max_length=BODY_MAX)
-    status: ContentItemStatus = ContentItemStatus.DRAFT
-    scheduled_at: datetime | None = None
 
 
 class ContentItemRead(APIModel):
@@ -399,16 +398,18 @@ class ContentItemRead(APIModel):
     status: ContentItemStatus
     scheduled_at: datetime | None
     source_item_id: str | None = None
+    published_url: str = ""
+    published_on: date | None = None
     created_at: datetime
     updated_at: datetime
 
 
 class ContentItemUpdate(APIModel):
-    """Fields a direct edit may change. Brand, channel and source are not among them."""
+    """Title and body only. Status changes go through the transition action."""
 
+    author: str = Field(min_length=1, max_length=NAME_MAX)
     title: str | None = Field(default=None, min_length=1, max_length=TITLE_MAX)
     body: str | None = Field(default=None, max_length=BODY_MAX)
-    status: ContentItemStatus | None = None
 
     @field_validator("title", "body")
     @classmethod
@@ -418,6 +419,7 @@ class ContentItemUpdate(APIModel):
 
 class DuplicateContentRequest(APIModel):
     target_brand_id: str = _id_field()
+    author: str = Field(min_length=1, max_length=NAME_MAX)
 
 
 class ScheduleContentRequest(APIModel):
@@ -425,12 +427,33 @@ class ScheduleContentRequest(APIModel):
 
     channel_id: str = _id_field()
     scheduled_at: datetime
+    author: str = Field(min_length=1, max_length=NAME_MAX)
+
+
+class TransitionRequest(APIModel):
+    """Move an item. ``published`` records a URL and a date. It does not call out."""
+
+    status: ContentItemStatus
+    author: str = Field(min_length=1, max_length=NAME_MAX)
+    note: str = Field(default="", max_length=NOTES_MAX)
+    channel_id: str | None = _optional_id_field()
+    scheduled_at: datetime | None = None
+    published_url: str = Field(default="", max_length=URL_MAX)
+    published_on: date | None = None
+
+
+class ContentDecisionRequest(APIModel):
+    approver_id: str = _id_field()
+    status: ApprovalStatus = ApprovalStatus.APPROVED
+    note: str = Field(default="", max_length=NOTES_MAX)
 
 
 class ContentRevisionCreate(APIModel):
     brand_id: str = _id_field()
     content_item_id: str = _id_field()
     revision_no: int = Field(ge=1)
+    author: str = Field(min_length=1, max_length=NAME_MAX)
+    title: str = Field(default="", max_length=TITLE_MAX)
     body: str = Field(default="", max_length=BODY_MAX)
     note: str = Field(default="", max_length=NOTES_MAX)
 
@@ -440,6 +463,8 @@ class ContentRevisionRead(APIModel):
     brand_id: str
     content_item_id: str
     revision_no: int
+    author: str
+    title: str
     body: str
     note: str
     created_at: datetime
@@ -468,11 +493,27 @@ class CalendarSlotRead(APIModel):
     updated_at: datetime
 
 
+class ApproverCreate(APIModel):
+    brand_id: str = _id_field()
+    name: str = Field(min_length=1, max_length=NAME_MAX)
+    email: str = Field(default="", max_length=EMAIL_MAX)
+
+
+class ApproverRead(APIModel):
+    id: str
+    brand_id: str
+    name: str
+    email: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class ApprovalCreate(APIModel):
     brand_id: str = _id_field()
     subject_type: ApprovalSubject
     subject_id: str = _id_field()
     status: ApprovalStatus = ApprovalStatus.PENDING
+    approver_id: str | None = _optional_id_field()
     note: str = Field(default="", max_length=NOTES_MAX)
 
 
@@ -482,6 +523,7 @@ class ApprovalRead(APIModel):
     subject_type: ApprovalSubject
     subject_id: str
     status: ApprovalStatus
+    approver_id: str | None
     note: str
     decided_at: datetime | None
     created_at: datetime
@@ -799,6 +841,7 @@ BRAND_SCOPED_CREATE_MODELS: tuple[type[APIModel], ...] = (
     ContentItemCreate,
     ContentRevisionCreate,
     CalendarSlotCreate,
+    ApproverCreate,
     ApprovalCreate,
     KPIDefinitionCreate,
     MetricEntryCreate,
