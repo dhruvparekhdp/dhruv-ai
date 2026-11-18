@@ -91,6 +91,7 @@ class Task:
     mission_id: str
     agent_id: str
     objective: str
+    correlation_id: str = ""
     status: TaskStatus = TaskStatus.PENDING
     depth: int = 0
     depends_on: list[str] = field(default_factory=list)
@@ -122,6 +123,9 @@ class Mission:
     goal: str
     status: MissionStatus = MissionStatus.PLANNING
     session_id: str = ""
+    # The request that created the mission. Empty when it was not created
+    # under a correlation id (a test, or a resume from before this column).
+    correlation_id: str = ""
     budget: Budget = field(default_factory=Budget)
     summary: str = ""
     error: str = ""

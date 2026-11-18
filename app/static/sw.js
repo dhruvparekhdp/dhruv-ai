@@ -36,7 +36,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
 
   // Never cache the API, the health probe, or the WebSocket upgrade.
-  if (request.method !== "GET" || url.pathname.startsWith("/api/") || url.pathname === "/health") {
+  if (request.method !== "GET" || url.pathname.startsWith("/api/") || url.pathname === "/health" || url.pathname === "/ready") {
     return;
   }
 

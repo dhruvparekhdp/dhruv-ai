@@ -17,7 +17,16 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.core.db import ddl_types, execute, execute_script, fetch_all, fetch_one, get_conn
+from app.core.correlation import current_correlation_id
+from app.core.db import (
+    add_column_if_missing,
+    ddl_types,
+    execute,
+    execute_script,
+    fetch_all,
+    fetch_one,
+    get_conn,
+)
 from app.missions.models import (
     ApprovalDecision,
     Budget,
@@ -72,7 +81,8 @@ def init_db() -> None:
         status      TEXT NOT NULL,
         budget      {json},
         summary     TEXT DEFAULT '',
-        error       TEXT DEFAULT ''
+        error       TEXT DEFAULT '',
+        correlation_id TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
@@ -92,7 +102,8 @@ def init_db() -> None:
         lease_expires_at  {ts},
         prompt_tokens     INTEGER DEFAULT 0,
         completion_tokens INTEGER DEFAULT 0,
-        tool_calls        INTEGER DEFAULT 0
+        tool_calls        INTEGER DEFAULT 0,
+        correlation_id    TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS agent_messages (
@@ -104,7 +115,8 @@ def init_db() -> None:
         receiver       TEXT NOT NULL,
         action         TEXT NOT NULL,
         payload        {json},
-        status         TEXT DEFAULT ''
+        status         TEXT DEFAULT '',
+        correlation_id TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS approvals (
@@ -129,6 +141,9 @@ def init_db() -> None:
 
     with get_conn() as conn:
         execute_script(conn, script)
+        # Databases created before this column existed still have the table.
+        for table in ("missions", "tasks", "agent_messages"):
+            add_column_if_missing(conn, table, "correlation_id", "TEXT DEFAULT ''")
 
 
 # --------------------------------------------------------------------------
@@ -157,6 +172,7 @@ def _row_to_mission(row: dict[str, Any]) -> Mission:
         budget=Budget.from_dict(_loads(row["budget"], {})),
         summary=row["summary"] or "",
         error=row["error"] or "",
+        correlation_id=row.get("correlation_id") or "",
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
     )
@@ -179,6 +195,7 @@ def _row_to_task(row: dict[str, Any]) -> Task:
         prompt_tokens=row["prompt_tokens"] or 0,
         completion_tokens=row["completion_tokens"] or 0,
         tool_calls=row["tool_calls"] or 0,
+        correlation_id=row.get("correlation_id") or "",
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
     )
@@ -198,13 +215,14 @@ def create_mission(mission: Mission) -> Mission:
             conn,
             """
             INSERT INTO missions (mission_id, session_id, created_at, updated_at,
-                                  goal, status, budget, summary, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  goal, status, budget, summary, error, correlation_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 mission.mission_id, mission.session_id, mission.created_at,
                 mission.updated_at, mission.goal, mission.status.value,
                 json.dumps(mission.budget.as_dict()), mission.summary, mission.error,
+                mission.correlation_id,
             ),
         )
     return mission
@@ -267,15 +285,16 @@ def create_tasks(tasks: list[Task]) -> list[Task]:
                 INSERT INTO tasks (task_id, mission_id, created_at, updated_at, agent_id,
                                    objective, status, depth, depends_on, result, error,
                                    attempts, idempotency_key, lease_expires_at,
-                                   prompt_tokens, completion_tokens, tool_calls)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   prompt_tokens, completion_tokens, tool_calls,
+                                   correlation_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task.task_id, task.mission_id, task.created_at, task.updated_at,
                     task.agent_id, task.objective, task.status.value, task.depth,
                     json.dumps(task.depends_on), task.result, task.error, task.attempts,
                     task.idempotency_key, task.lease_expires_at, task.prompt_tokens,
-                    task.completion_tokens, task.tool_calls,
+                    task.completion_tokens, task.tool_calls, task.correlation_id,
                 ),
             )
     return tasks
@@ -389,17 +408,22 @@ def log_message(
     whom' is answerable after the fact rather than only in a live log stream.
     """
     message_id = new_message_id()
+    # The scheduler binds the mission's correlation id before it writes, so
+    # an audit row records the request that caused it even after that request
+    # has returned.
+    correlation_id = current_correlation_id()
     with get_conn() as conn:
         execute(
             conn,
             """
             INSERT INTO agent_messages (message_id, mission_id, task_id, created_at,
-                                        sender, receiver, action, payload, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        sender, receiver, action, payload, status,
+                                        correlation_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 message_id, mission_id, task_id, _now(), sender, receiver, action,
-                json.dumps(payload or {}), status,
+                json.dumps(payload or {}), status, correlation_id,
             ),
         )
     return message_id

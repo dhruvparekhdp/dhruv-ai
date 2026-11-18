@@ -17,10 +17,13 @@ The only dialect differences that matter for our schema:
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Sequence
+
+_IDENTIFIER = re.compile(r"^[a-z_]+$")
 
 from app.core.config import get_settings
 
@@ -109,3 +112,39 @@ def fetch_all(conn: Any, sql: str, params: Sequence[Any] = ()) -> list[dict[str,
 def fetch_one(conn: Any, sql: str, params: Sequence[Any] = ()) -> dict[str, Any] | None:
     rows = fetch_all(conn, sql, params)
     return rows[0] if rows else None
+
+
+def add_column_if_missing(conn: Any, table: str, column: str, declaration: str) -> None:
+    """Add a column when the table already existed without it.
+
+    `CREATE TABLE IF NOT EXISTS` does not alter an old table. A fresh database
+    whose CREATE already includes the column raises "duplicate column", which
+    is the success case. On Postgres a failed statement aborts the surrounding
+    transaction, so the attempt sits inside a savepoint.
+    """
+    if _IDENTIFIER.fullmatch(table) is None or _IDENTIFIER.fullmatch(column) is None:
+        raise ValueError("refusing to interpolate an unexpected identifier")
+    conn.execute("SAVEPOINT jarvis_add_column")
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+    except Exception as exc:
+        conn.execute("ROLLBACK TO SAVEPOINT jarvis_add_column")
+        conn.execute("RELEASE SAVEPOINT jarvis_add_column")
+        text = str(exc).lower()
+        if "duplicate column" in text or "already exists" in text:
+            return
+        raise
+    conn.execute("RELEASE SAVEPOINT jarvis_add_column")
+
+
+def ping_database() -> bool:
+    """True when a trivial read succeeds. The exception text is not logged.
+
+    A connection error from Postgres can include the URL, and that URL can
+    contain a password. Callers report the failure without the message.
+    """
+    try:
+        with get_conn() as conn:
+            return fetch_one(conn, "SELECT 1 AS ok") is not None
+    except Exception:
+        return False

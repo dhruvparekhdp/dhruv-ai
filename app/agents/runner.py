@@ -91,6 +91,7 @@ class AgentRunner:
         """
         started = time.perf_counter()
         budget = definition.budget
+        log.info("agent step agent=%s", definition.id)
 
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": definition.system_prompt},

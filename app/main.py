@@ -22,7 +22,7 @@ from typing import Annotated, Any, AsyncIterator
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -35,7 +35,10 @@ from app.schedule import store as schedule_store
 from app.schedule import jobs as schedule_jobs
 from app.watchers import store as watcher_store
 from app.core.config import get_settings
+from app.core.correlation import CorrelationMiddleware
+from app.core.db import ping_database
 from app.core.security import check_passcode, require_passcode
+from app.core.structured_log import configure_logging
 from app.core.telemetry import telemetry
 from app.devices import store as device_store
 from app.devices.store import DeviceError
@@ -60,10 +63,7 @@ from app.tools import node as _node_tools    # noqa: F401 - import registers the
 from app.adapters.registry import registry as adapter_registry
 from app.tools.registry import registry as tool_registry
 
-logging.basicConfig(
-    level=logging.DEBUG if get_settings().debug else logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
-)
+configure_logging()
 log = logging.getLogger("jarvis")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -191,7 +191,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # The Ionic dev server is a different origin. Without this it cannot read
+    # the correlation id the middleware puts on the response.
+    expose_headers=["X-Correlation-ID"],
 )
+# Added last so it is the outermost middleware and the id is visible to every
+# route, including the ones that write missions.
+app.add_middleware(CorrelationMiddleware)
 
 # Own prefix and own tables. The passcode dependency sits on the router
 # itself: this path is not under /api/v1, where the rest of the gate lives,
@@ -339,6 +345,40 @@ async def health() -> dict[str, Any]:
     return payload
 
 
+@app.get("/ready", tags=["system"])
+async def ready() -> JSONResponse:
+    """Readiness: database, scheduler, and which integrations are configured.
+
+    Unauthenticated, like /health, so a probe can call it. Optional
+    integrations that are not configured do not fail readiness: Jarvis is
+    meant to boot on the local engine with no keys. A database the process
+    cannot read does fail it. The body never includes a URL or a secret,
+    only configured / unconfigured.
+    """
+    database_ok = ping_database()
+    scheduler_ok = hasattr(scheduler, "_running")
+    settings = get_settings()
+    integrations = {
+        "echo": "configured",
+        "groq": "configured" if settings.groq_enabled else "unconfigured",
+        "gemini": "configured" if settings.gemini_enabled else "unconfigured",
+        "search": "configured" if settings.search_api_key else "unconfigured",
+        "telegram": "configured" if todo_reminders.configured() else "unconfigured",
+    }
+    ok = database_ok and scheduler_ok
+    return JSONResponse(
+        status_code=200 if ok else 503,
+        content={
+            "status": "ready" if ok else "not_ready",
+            "checks": {
+                "database": "ok" if database_ok else "error",
+                "scheduler": "ok" if scheduler_ok else "error",
+                "integrations": integrations,
+            },
+        },
+    )
+
+
 @app.get("/api/v1/greeting", tags=["chat"])
 async def greeting(_: Guarded) -> dict[str, Any]:
     """Time-aware greeting and the mood scale, so the client has no hardcoded copy."""
@@ -462,6 +502,7 @@ def _task_payload(task: Any) -> dict[str, Any]:
     return {
         "task_id": task.task_id,
         "agent_id": task.agent_id,
+        "correlation_id": task.correlation_id,
         "objective": task.objective,
         "status": task.status.value,
         "depends_on": task.depends_on,
@@ -477,6 +518,7 @@ def _task_payload(task: Any) -> dict[str, Any]:
 def _mission_payload(mission: Any, tasks: list[Any] | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "mission_id": mission.mission_id,
+        "correlation_id": mission.correlation_id,
         "goal": mission.goal,
         "status": mission.status.value,
         "summary": mission.summary,
