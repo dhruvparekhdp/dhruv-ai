@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, ToolError, tool
-from app.work_tasks.models import Actor, TaskError
 from app.work_tasks import store
+from app.work_tasks.models import Actor, TaskError
 
 
 @tool(
@@ -53,6 +54,7 @@ from app.work_tasks import store
     },
     capability=Capability.WRITE,
     risk=Risk.SAFE,
+    policy=PolicyLevel.INTERNAL_WRITE,
 )
 async def tasks_suggest(
     title: str,

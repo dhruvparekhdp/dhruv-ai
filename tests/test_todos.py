@@ -8,7 +8,7 @@ todo list that lets you run seven things at once.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -17,14 +17,14 @@ from app.todos import store
 from app.todos.models import MAX_ACTIVE_TRACKS, Source, TodoError, TodoStatus, Track
 
 
-@pytest.fixture()
-def db(env):  # noqa: ANN001 - `env` is the shared isolation fixture
+@pytest.fixture
+def db(env):
     store.init_db()
     return store
 
 
 def _iso(delta_minutes: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(minutes=delta_minutes)).isoformat()
+    return (datetime.now(UTC) + timedelta(minutes=delta_minutes)).isoformat()
 
 
 # --------------------------------------------------------------------------

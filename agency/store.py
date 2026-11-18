@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, TypeVar
 
@@ -55,7 +55,7 @@ else:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _parse_ts(value: Any) -> datetime | None:
@@ -68,12 +68,12 @@ def _parse_ts(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     try:
         parsed = datetime.fromisoformat(str(value).replace(" ", "T"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _raise_integrity(exc: BaseException) -> None:

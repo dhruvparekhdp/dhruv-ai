@@ -13,8 +13,9 @@ Age is decided by the client, not by this module. An engine that sends
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Callable, Mapping
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
+from typing import Any
 
 SchemaCheck = Callable[[Mapping[str, Any]], str | None]
 
@@ -37,8 +38,8 @@ def parse_timestamp(value: Any) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def validate_envelope(payload: Any) -> str | None:

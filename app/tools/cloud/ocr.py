@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from app.adapters.ocr import OcrAdapter, build_ocr_adapter, render_read
+from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, ToolError, tool
 
 # A scan of a statement, not a disk image. Larger files stay on disk.
@@ -63,6 +64,7 @@ def _current() -> OcrAdapter:
     },
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.EXTERNAL,
 )
 async def extract_document(path: str, **_: Any) -> str:
     file = Path(path)

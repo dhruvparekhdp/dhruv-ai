@@ -137,7 +137,7 @@ def cmd_start(drill: Drill, state: dict) -> None:
     for line in drill.symptom.strip().split("\n"):
         print(f"  {line}")
     print(f"\n{C['b']}Where to start{C['x']}")
-    print(f"  The bug is somewhere in this repo. Reproduce it first:")
+    print("  The bug is somewhere in this repo. Reproduce it first:")
     print(f"    {C['c']}python3 drills/run.py check {drill.id}{C['x']}")
     print(f"\n{C['dim']}  Stuck? 'hint {drill.id}'. Beaten? 'solve {drill.id}'.{C['x']}\n")
 

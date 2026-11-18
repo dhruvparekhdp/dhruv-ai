@@ -10,7 +10,7 @@ the route: a tool, a test, and a later caller all hit the same refusal.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.db import ddl_types, execute, execute_script, fetch_all, fetch_one, get_conn
@@ -142,7 +142,7 @@ def list_tasks(
     if tag:
         needle = tag.strip().lower()
         items = [item for item in items if needle in item.tags]
-    far = datetime.max.replace(tzinfo=timezone.utc)
+    far = datetime.max.replace(tzinfo=UTC)
     items.sort(key=lambda item: (
         item.due_at is None,
         item.due_at or far,
@@ -232,9 +232,9 @@ def complete(task_id: str, *, now: datetime | None = None) -> tuple[WorkTask, Wo
         raise TaskError("accept the suggestion before completing it")
     if current.status is not TaskStatus.OPEN:
         raise TaskError("only an open task can be completed")
-    moment = now or datetime.now(timezone.utc)
+    moment = now or datetime.now(UTC)
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
+        moment = moment.replace(tzinfo=UTC)
     stamp = _stamp(moment)
     following = next_due(current.due_at, current.recurrence, now=moment)
     with get_conn() as conn:
@@ -411,7 +411,7 @@ def _store_due(value: Any) -> str | None:
     parsed = _parse_due(value)
     if parsed is None:
         return None
-    return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    return parsed.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 def _parse_due(value: Any) -> datetime | None:
@@ -424,40 +424,40 @@ def _parse_due(value: Any) -> datetime | None:
         return None
     if isinstance(value, datetime):
         parsed = value if value.tzinfo else value.replace(tzinfo=IST)
-        return parsed.astimezone(timezone.utc)
+        return parsed.astimezone(UTC)
     text = str(value).strip().replace("Z", "+00:00")
     if len(text) == 10:
         try:
             parsed = datetime.fromisoformat(text).replace(tzinfo=IST)
         except ValueError as exc:
             raise TaskError("due_at must be an ISO-8601 date or timestamp") from exc
-        return parsed.astimezone(timezone.utc)
+        return parsed.astimezone(UTC)
     try:
         parsed = datetime.fromisoformat(text)
     except ValueError as exc:
         raise TaskError("due_at must be an ISO-8601 date or timestamp") from exc
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=IST)
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(UTC)
 
 
 def _stamp(now: datetime | None) -> str:
-    moment = now or datetime.now(timezone.utc)
+    moment = now or datetime.now(UTC)
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
-    return moment.astimezone(timezone.utc).isoformat(timespec="microseconds")
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 def _parse_ts(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     try:
         parsed = datetime.fromisoformat(str(value).replace(" ", "T").replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _row(row: dict[str, Any]) -> WorkTask:

@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.db import ddl_types, execute, execute_script, fetch_all, fetch_one, get_conn
@@ -107,7 +107,7 @@ def _row_to_node(row: dict[str, Any]) -> Node:
 def create_enrolment_token(label: str = "") -> str:
     """Mint a one-time token that lets a new node join. Returned once, in clear."""
     token = new_enrolment_token()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with get_conn() as conn:
         execute(
             conn,
@@ -129,12 +129,12 @@ def _parse_ts(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     try:
         parsed = datetime.fromisoformat(str(value).replace(" ", "T"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def redeem_enrolment_token(token: str) -> bool:
@@ -148,7 +148,7 @@ def redeem_enrolment_token(token: str) -> bool:
         if row is None or row["used_at"] is not None:
             return False
         expires = _parse_ts(row["expires_at"])
-        if expires is not None and expires <= datetime.now(timezone.utc):
+        if expires is not None and expires <= datetime.now(UTC):
             return False
         execute(
             conn,

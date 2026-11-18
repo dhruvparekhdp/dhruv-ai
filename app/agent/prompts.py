@@ -7,7 +7,7 @@ prompt produced each completion.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # Mood scale used by the check-in UI. Score -> (label, emoji).
 MOOD_SCALE: dict[int, tuple[str, str]] = {
@@ -62,7 +62,7 @@ than talking to you.
 def greeting_for(now: datetime | None = None) -> str:
     """Time-of-day greeting. UTC-based -- the client sends its own local hour
     once timezone handling lands in Phase 2."""
-    hour = (now or datetime.now(timezone.utc)).hour
+    hour = (now or datetime.now(UTC)).hour
     if hour < 12:
         return "Good morning"
     if hour < 18:

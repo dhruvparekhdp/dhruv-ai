@@ -6,16 +6,16 @@ reschedule must not open a network connection.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from agency import calendar, content, migrate, store, templates
 from agency.db import agency_conn
 from agency.models import AgencyError, ContentItemStatus
+
 from app.core.db import fetch_one
 
-WHEN = datetime(2026, 11, 6, 9, 0, tzinfo=timezone.utc)
+WHEN = datetime(2026, 11, 6, 9, 0, tzinfo=UTC)
 LATER = WHEN + timedelta(hours=1)
 OVERLAP = WHEN + timedelta(minutes=30)
 
@@ -42,7 +42,7 @@ NAMES = {
 }
 
 
-@pytest.fixture()
+@pytest.fixture
 def db(env):
     migrate.migrate_up()
     return store

@@ -10,7 +10,6 @@ rather than a fabricated result list -- a fake answer is worse than no answer.
 
 from __future__ import annotations
 
-import asyncio
 import html
 import re
 from typing import Any
@@ -64,9 +63,9 @@ async def web_fetch_tool(url: str, **_: Any) -> str:
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=TIMEOUT_SECONDS) as client:
             response = await client.get(url, headers={"User-Agent": "Jarvis/0.2 (personal assistant)"})
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise ToolError(f"timed out after {TIMEOUT_SECONDS}s fetching {url}") from exc
-    except Exception as exc:  # noqa: BLE001 - surfaced to the model as a tool error
+    except Exception as exc:
         raise ToolError(f"could not fetch {url}: {exc}") from exc
 
     if response.status_code >= 400:
@@ -110,7 +109,7 @@ async def web_search_tool(query: str, **_: Any) -> str:
             )
         response.raise_for_status()
         results = response.json().get("results", [])
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ToolError(f"search failed: {exc}") from exc
 
     if not results:

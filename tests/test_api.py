@@ -9,7 +9,6 @@ import json
 
 from tests.conftest import TEST_DATABASE_URL, TEST_PASSCODE
 
-
 # --- health ---------------------------------------------------------------
 
 
@@ -44,9 +43,8 @@ def test_websocket_rejects_bad_passcode(client) -> None:
     import pytest
     from starlette.websockets import WebSocketDisconnect
 
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect("/ws/logs?passcode=wrong") as ws:
-            ws.receive_text()
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws/logs?passcode=wrong") as ws:
+        ws.receive_text()
 
 
 # --- session --------------------------------------------------------------

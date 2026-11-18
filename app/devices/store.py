@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.db import ddl_types, execute, execute_script, fetch_all, get_conn
@@ -54,7 +54,7 @@ def init_db() -> None:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _clean_metrics(metrics: Any) -> dict[str, Any]:

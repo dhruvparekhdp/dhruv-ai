@@ -33,7 +33,7 @@ class ScheduleRunner:
             store.mark_started(name)
             try:
                 payload = await handler()
-            except Exception:  # noqa: BLE001 - one job must not kill the loop
+            except Exception:
                 log.exception("schedule job %s failed", name)
                 payload = {"status": "error"}
             results.append({"name": name, **payload})
@@ -48,11 +48,11 @@ class ScheduleRunner:
                     log.debug("schedule ran %d job(s)", len(ran))
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.exception("schedule tick failed")
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=store.TICK_SECONDS)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     def stop(self) -> None:

@@ -15,8 +15,8 @@ from zoneinfo import ZoneInfo
 
 from app.alerts.rules import IST
 from app.analytics.outcomes import compute_outcomes
-from app.missions.models import Mission, MissionStatus, Task, TaskStatus, new_mission_id, new_task_id
 from app.missions import store as mission_store
+from app.missions.models import Mission, MissionStatus, Task, TaskStatus, new_mission_id, new_task_id
 
 DAILY_GOAL = "Daily trading briefing"
 SECTIONS = ("market", "signals", "positions", "performance", "alerts")

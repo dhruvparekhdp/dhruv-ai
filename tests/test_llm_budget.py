@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.agent import llm_budget
-from app.agent.engines import EngineRouter, EngineResult
+from app.agent.engines import EngineRouter
 
 
 def test_cooled_provider_skipped_in_chain(env):

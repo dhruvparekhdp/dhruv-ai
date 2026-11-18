@@ -22,7 +22,7 @@ import argparse
 import re
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from agency.db import agency_conn
@@ -62,7 +62,7 @@ def discover() -> list[Migration]:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _statements(script: str) -> list[str]:

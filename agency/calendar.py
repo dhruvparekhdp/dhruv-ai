@@ -10,7 +10,7 @@ overlap: the warning is the instant, not the window.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from agency.db import agency_conn
@@ -44,15 +44,15 @@ def _timestamp(value: Any, field: str) -> str:
     string we write, so the comparison does not depend on a native timestamp.
     """
     if isinstance(value, datetime):
-        aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        return aware.astimezone(timezone.utc).isoformat(timespec="microseconds")
+        aware = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return aware.astimezone(UTC).isoformat(timespec="microseconds")
     text = str(value or "").strip()
     if not text:
         raise AgencyError(f"{field} is required.")
     parsed = _parse_ts(text)
     if parsed is None:
         raise AgencyError(f"{field} must be an ISO-8601 timestamp.")
-    return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    return parsed.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 def _row(row: dict[str, Any]) -> CalendarSlot:

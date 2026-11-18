@@ -3,14 +3,15 @@
 
 fastapi==0.115.6
 uvicorn[standard]==0.34.0      # [standard] pulls in the websockets implementation
-pydantic==2.10.4
+pydantic==2.12.5
 PyYAML==6.0.2                  # declarative agent definitions
 httpx==0.28.1                  # web.fetch, and fastapi.testclient
+Pillow==13.0.0                  # pinned above vulnerable transitive versions
 
 # LLM providers. Both are optional at runtime: the engine router degrades to a
 # local fallback when no key is configured.
 groq==0.15.0
-google-genai==0.3.0
+google-genai==2.34.0
 
 # Postgres driver. Unused while DATABASE_URL is unset, but present so pointing
 # at a Postgres instance is a one-env-var change with no code edit.
@@ -19,4 +20,4 @@ psycopg[binary]==3.2.3
 # Local embeddings for memory search. ONNX-based -- no PyTorch. Optional at
 # runtime: if the model cannot be fetched, memory search falls back to
 # keyword-only rather than failing.
-fastembed==0.8.0
+fastembed==0.9.1

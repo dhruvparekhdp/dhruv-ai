@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -99,7 +99,7 @@ def init_db() -> None:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _state() -> dict[str, Any]:
@@ -144,7 +144,7 @@ def _session_id() -> str:
 
 
 def is_owner(chat_id: Any) -> bool:
-    owner = reminders._chat_id()  # noqa: SLF001 - same env var, one source of truth
+    owner = reminders._chat_id()
     return bool(owner) and str(chat_id) == owner
 
 
@@ -172,8 +172,8 @@ async def handle_update(update: dict[str, Any]) -> tuple[str, str] | None:
 
 
 async def _handle_callback(callback: dict[str, Any]) -> tuple[str, str] | None:
-    from app.missions.models import ApprovalDecision
     from app.missions import store as mission_store
+    from app.missions.models import ApprovalDecision
 
     message = callback.get("message") or {}
     chat_id = str((message.get("chat") or {}).get("id", ""))
@@ -228,7 +228,7 @@ async def notify_approval(approval_id: str) -> bool:
     record = mission_store.get_approval(approval_id)
     if not record:
         return False
-    chat_id = reminders._chat_id()  # noqa: SLF001
+    chat_id = reminders._chat_id()
     payload = {
         "chat_id": chat_id,
         "text": format_approval_message(record),
@@ -242,7 +242,7 @@ async def notify_approval(approval_id: str) -> bool:
 async def send_owner_text(text: str) -> bool:
     if not configured():
         return False
-    chat_id = reminders._chat_id()  # noqa: SLF001
+    chat_id = reminders._chat_id()
     for chunk in split_message(text):
         await _http_transport(
             "sendMessage",
@@ -378,7 +378,7 @@ class ConflictError(RuntimeError):
 
 
 async def _http_transport(method: str, payload: dict[str, Any]) -> dict[str, Any]:
-    url = f"{TELEGRAM_API}/bot{reminders._token()}/{method}"  # noqa: SLF001
+    url = f"{TELEGRAM_API}/bot{reminders._token()}/{method}"
     async with httpx.AsyncClient(timeout=POLL_SECONDS + 10) as client:
         response = await client.post(url, json=payload)
     if response.status_code == 409:
@@ -413,7 +413,7 @@ class TelegramChannel:
 
             try:
                 outcome = await handle_update(update)
-            except Exception:  # noqa: BLE001 - one bad message must not stop the loop
+            except Exception:
                 log.exception("failed to handle Telegram update %s", update_id)
                 continue
             if outcome is None:
@@ -432,7 +432,7 @@ class TelegramChannel:
                         "answerCallbackQuery",
                         {"callback_query_id": callback["id"]},
                     )
-                except Exception:  # noqa: BLE001
+                except Exception:
                     log.debug("answerCallbackQuery failed", exc_info=True)
         return handled
 
@@ -463,5 +463,5 @@ class TelegramChannel:
     async def _sleep(self, seconds: float) -> None:
         try:
             await asyncio.wait_for(self._stop.wait(), timeout=seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass

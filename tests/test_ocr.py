@@ -10,7 +10,7 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -21,9 +21,10 @@ import pytest
 from app.adapters.models import Outcome
 from app.adapters.ocr import OcrField, build_ocr_adapter, render_read, review_threshold
 from app.tools.cloud.ocr import extract_document, set_ocr_adapter
-from app.tools.registry import Capability, Risk, ToolError, is_order_like, registry as tool_registry
+from app.tools.registry import Capability, Risk, ToolError, is_order_like
+from app.tools.registry import registry as tool_registry
 
-FIXED_NOW = datetime(2026, 11, 6, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
 TOKEN = "ocr-secret-value"
 FILE_BYTES = b"%PDF-1.4 hello-ocr-bytes"
 
@@ -49,11 +50,11 @@ class Upstream:
     def script(self, *steps: dict[str, Any]) -> None:
         self._queue.extend(steps)
 
-    def start(self) -> "Upstream":
+    def start(self) -> Upstream:
         upstream = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:  # noqa: N802
+            def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length) if length else b""
                 upstream.bodies.append(body)
@@ -105,7 +106,7 @@ class Upstream:
             self._thread.join(timeout=2)
 
 
-@pytest.fixture()
+@pytest.fixture
 def upstream() -> Any:
     server = Upstream().start()
     try:
@@ -115,7 +116,7 @@ def upstream() -> Any:
 
 
 def _envelope(fields: list[dict[str, Any]], as_of: datetime) -> dict[str, Any]:
-    stamp = as_of.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    stamp = as_of.astimezone(UTC).isoformat().replace("+00:00", "Z")
     return {"data": {"fields": fields}, "data_as_of": stamp, "stale": False}
 
 

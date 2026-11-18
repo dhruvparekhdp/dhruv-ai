@@ -21,8 +21,9 @@ from app.missions.models import Budget, MissionStatus, Task, TaskStatus, new_tas
 from app.missions.planner import plan_mission
 from app.missions.scheduler import MissionScheduler
 from app.tools.cloud.trading import set_trading_adapter, trading_crypto_read, trading_nse_read
+from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, Tool, check_permission, is_order_like
-from tests.conftest import scripted_router, text_result, tool_result
+from tests.conftest import auto_approver, scripted_router, text_result, tool_result
 
 FIXTURES = Path("docs/contracts/trading-v1/fixtures")
 
@@ -159,6 +160,7 @@ def test_order_like_tools_are_denied_even_when_allowlisted() -> None:
                 parameters={"type": "object", "properties": {}},
                 capability=Capability.READ,
                 risk=Risk.DANGEROUS,
+                policy=PolicyLevel.DANGEROUS,
                 handler=_handler,
             ),
             granted_capabilities={Capability.READ, Capability.FINANCIAL},
@@ -257,7 +259,10 @@ async def test_runner_retries_an_invented_holding_then_accepts(agents) -> None:
     ])
 
     result = await AgentRunner(router).run(
-        agents.get("crypto_analyst"), objective="What is the spot book?"
+        agents.get("crypto_analyst"), objective="What is the spot book?",
+        mission_id="msn_test_approval", approval_hook=auto_approver(
+            "msn_test_approval", "tsk_test_approval", "crypto_analyst"
+        ),
     )
 
     assert result.accepted is True
@@ -286,7 +291,10 @@ async def test_exhausted_retries_do_not_store_the_invented_holding(agents) -> No
     ])
 
     result = await AgentRunner(router).run(
-        agents.get("crypto_analyst"), objective="What is the spot book?"
+        agents.get("crypto_analyst"), objective="What is the spot book?",
+        mission_id="msn_test_approval", approval_hook=auto_approver(
+            "msn_test_approval", "tsk_test_approval", "crypto_analyst"
+        ),
     )
 
     assert result.accepted is False
@@ -295,7 +303,7 @@ async def test_exhausted_retries_do_not_store_the_invented_holding(agents) -> No
     assert "invented holding rejected" in result.text
 
 
-async def test_scheduler_dispatches_crypto_analyst_on_a_healthy_path(agents) -> None:
+async def test_scheduler_dispatches_crypto_analyst_on_a_healthy_path(agents, monkeypatch) -> None:
     """Registration is the YAML id the scheduler already dispatches by."""
     payload = _fixture("crypto", "signals.json")
     read = _read(SignalResponse, payload)
@@ -308,6 +316,9 @@ async def test_scheduler_dispatches_crypto_analyst_on_a_healthy_path(agents) -> 
         text_result(good),
     ])
     scheduler = MissionScheduler(AgentRunner(router))
+    monkeypatch.setattr(scheduler, "_approval_hook", lambda mission, task, agent: auto_approver(
+        mission.mission_id, task.task_id, agent
+    ))
     mission = await scheduler.create_mission(goal="Read crypto signals")
     store.create_tasks([
         Task(
@@ -334,7 +345,7 @@ async def test_scheduler_dispatches_crypto_analyst_on_a_healthy_path(agents) -> 
     assert "crypto_analyst" in receivers
 
 
-async def test_scheduler_drops_a_rejected_holding(agents) -> None:
+async def test_scheduler_drops_a_rejected_holding(agents, monkeypatch) -> None:
     read = _read(PositionResponse, _fixture("crypto", "positions.json"))
     set_trading_adapter("crypto", ScriptFeed(positions=read))
     preview = await trading_crypto_read(resource="positions")
@@ -347,6 +358,9 @@ async def test_scheduler_drops_a_rejected_holding(agents) -> None:
         text_result(bad),
     ])
     scheduler = MissionScheduler(AgentRunner(router))
+    monkeypatch.setattr(scheduler, "_approval_hook", lambda mission, task, agent: auto_approver(
+        mission.mission_id, task.task_id, agent
+    ))
     mission = await scheduler.create_mission(goal="Read the book")
     store.create_tasks([
         Task(

@@ -18,8 +18,9 @@ from __future__ import annotations
 import logging
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 
@@ -37,7 +38,7 @@ Clock = Callable[[], datetime]
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class AdapterClient:

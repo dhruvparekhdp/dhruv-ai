@@ -20,8 +20,8 @@ OWNER = "424242"
 STRANGER = "999"
 
 
-@pytest.fixture()
-def channel_db(env, telemetry, monkeypatch):  # noqa: ANN001
+@pytest.fixture
+def channel_db(env, telemetry, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", OWNER)
     todo_store.init_db()

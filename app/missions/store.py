@@ -14,7 +14,7 @@ purpose.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.correlation import current_correlation_id
@@ -26,8 +26,9 @@ from app.core.db import (
     fetch_all,
     fetch_one,
     get_conn,
+    is_postgres,
+    q,
 )
-from app.core.db import is_postgres, q
 from app.missions.models import (
     ApprovalDecision,
     Budget,
@@ -53,11 +54,11 @@ def _existing_columns(conn: Any, table: str) -> set[str]:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _future(seconds: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat(
         timespec="microseconds"
     )
 
@@ -73,12 +74,12 @@ def _parse_ts(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     try:
         parsed = datetime.fromisoformat(str(value).replace(" ", "T"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def init_db() -> None:
@@ -537,9 +538,9 @@ def consume_approval(
     except TypeError:
         return "approval was for a different action"
 
-    moment = now or datetime.now(timezone.utc)
+    moment = now or datetime.now(UTC)
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
+        moment = moment.replace(tzinfo=UTC)
 
     with get_conn() as conn:
         row = fetch_one(conn, "SELECT * FROM approvals WHERE approval_id = ?", (approval_id,))
@@ -633,7 +634,7 @@ def reconcile_orphaned_tasks() -> dict[str, int]:
     Called once at startup, before serving traffic.
     """
     now = _now()
-    now_dt = datetime.now(timezone.utc)
+    now_dt = datetime.now(UTC)
     requeued = 0
     resumed = 0
 

@@ -8,7 +8,7 @@ decision is auditable, and it is not listed.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.alerts.rules import SEVERITIES, AlertDraft, AlertRules, Delivery, delivery_decision
@@ -27,12 +27,12 @@ def _parse_ts(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     try:
         parsed = datetime.fromisoformat(str(value).replace(" ", "T"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def init_db() -> None:
@@ -90,7 +90,7 @@ def insert(draft: AlertDraft, *, status: str, created_at: datetime) -> dict[str,
     if status not in {DELIVERED, SUPPRESSED}:
         raise ValueError(f"unknown alert status {status}")
     alert_id = f"alrt_{uuid.uuid4()}"
-    stamp = created_at.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    stamp = created_at.astimezone(UTC).isoformat(timespec="microseconds")
     with get_conn() as conn:
         execute(
             conn,

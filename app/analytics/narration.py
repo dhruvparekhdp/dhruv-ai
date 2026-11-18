@@ -9,7 +9,7 @@ introduces a figure the sheet does not contain.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
 from app.analytics.outcomes import SMALL_SAMPLE_BELOW, GroupStats, OutcomeAnalysis, OutcomeReport
@@ -228,7 +228,7 @@ def _field(text: str, name: str) -> str:
 def _stamp(value: datetime | None) -> str:
     if value is None:
         return "none"
-    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _num(value: Decimal | None) -> str:

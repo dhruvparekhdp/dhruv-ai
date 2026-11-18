@@ -16,10 +16,11 @@ import logging
 import time
 from typing import Any
 
-from app.agents.registry import DEFAULT_AGENT_ID, registry as agent_registry
+from app.agents.registry import DEFAULT_AGENT_ID
+from app.agents.registry import registry as agent_registry
 from app.agents.runner import AgentRunner
-from app.core.correlation import bind_mission, current_correlation_id
 from app.core import usage as usage_ledger
+from app.core.correlation import bind_mission, current_correlation_id
 from app.missions import store
 from app.missions.models import (
     ApprovalDecision,
@@ -159,7 +160,7 @@ class MissionScheduler:
 
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001 - a mission must never take the server down
+        except Exception as exc:
             log.exception("mission %s crashed", mission_id)
             store.update_mission(mission_id, status=MissionStatus.FAILED, error=str(exc))
             await ws_manager.broadcast(
@@ -307,7 +308,7 @@ class MissionScheduler:
                 approval_hook=self._approval_hook(mission, task, definition.id),
                 on_event=self._event_hook(mission.mission_id, task.task_id),
             )
-        except Exception as exc:  # noqa: BLE001 - one task failing must not kill the mission
+        except Exception as exc:
             log.exception("task %s failed", task.task_id)
             store.update_task(
                 task.task_id, status=TaskStatus.FAILED, error=str(exc), clear_lease=True
@@ -489,7 +490,7 @@ class MissionScheduler:
                 from app.channels import telegram as telegram_channel
 
                 await telegram_channel.notify_approval(approval_id)
-            except Exception:  # noqa: BLE001 - Telegram is optional
+            except Exception:
                 log.debug("Telegram approval notify failed", exc_info=True)
 
             deadline = time.monotonic() + APPROVAL_TIMEOUT_SECONDS

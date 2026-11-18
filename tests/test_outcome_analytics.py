@@ -18,7 +18,7 @@ from app.analytics.narration import INCOMPLETE, WARNING, narration_problems, ren
 from app.analytics.outcomes import compute_outcomes
 from app.contracts.trading_v1.models import TradeResponse
 from app.tools.cloud.trading import set_trading_adapter, trading_crypto_outcomes
-from tests.conftest import scripted_router, text_result, tool_result
+from tests.conftest import auto_approver, scripted_router, text_result, tool_result
 
 FIXTURES = Path("docs/contracts/trading-v1/fixtures")
 
@@ -468,7 +468,10 @@ async def test_runner_rejects_a_recomputed_win_rate_then_accepts_the_sheet(agent
             text_result(good),
         ])
         result = await AgentRunner(router).run(
-            agents.get("crypto_analyst"), objective="Narrate the paper book."
+            agents.get("crypto_analyst"), objective="Narrate the paper book.",
+            mission_id="msn_test_approval", approval_hook=auto_approver(
+                "msn_test_approval", "tsk_test_approval", "crypto_analyst"
+            ),
         )
     finally:
         set_trading_adapter("crypto", None)

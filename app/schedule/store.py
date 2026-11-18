@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.db import ddl_types, execute, execute_script, fetch_all, fetch_one, get_conn
@@ -11,7 +11,7 @@ TICK_SECONDS = 60
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _parse_ts(raw: str) -> datetime:
@@ -38,7 +38,7 @@ def init_db() -> None:
         for name, interval in defaults:
             if fetch_one(conn, "SELECT name FROM schedule_jobs WHERE name = ?", (name,)):
                 continue
-            due = (datetime.now(timezone.utc) + timedelta(seconds=5)).isoformat(timespec="microseconds")
+            due = (datetime.now(UTC) + timedelta(seconds=5)).isoformat(timespec="microseconds")
             execute(
                 conn,
                 "INSERT INTO schedule_jobs (name, interval_seconds, last_run_at, next_run_at, enabled)"
@@ -54,7 +54,7 @@ def list_jobs() -> list[dict[str, Any]]:
 
 
 def due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     now_s = now.isoformat(timespec="microseconds")
     with get_conn() as conn:
         rows = fetch_all(
@@ -67,7 +67,7 @@ def due_jobs(now: datetime | None = None) -> list[dict[str, Any]]:
 
 def mark_started(name: str, *, now: datetime | None = None) -> None:
     """Record a run *before* side effects so a crash re-runs at most once."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     now_s = now.isoformat(timespec="microseconds")
     with get_conn() as conn:
         row = fetch_one(conn, "SELECT interval_seconds FROM schedule_jobs WHERE name = ?", (name,))

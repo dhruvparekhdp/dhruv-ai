@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any
 
 _IDENTIFIER = re.compile(r"^[a-z_]+$")
 

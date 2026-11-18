@@ -10,7 +10,7 @@ It does not call the platform.
 from __future__ import annotations
 
 import itertools
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 from agency.db import agency_conn
@@ -297,7 +297,7 @@ def record_decision(
 
 def _timestamp(value: Any, field: str) -> str:
     if isinstance(value, datetime):
-        aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        aware = value if value.tzinfo else value.replace(tzinfo=UTC)
         return aware.isoformat(timespec="microseconds")
     text = str(value or "").strip()
     if not text:

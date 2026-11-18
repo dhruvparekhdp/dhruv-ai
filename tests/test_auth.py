@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 import pytest
@@ -72,9 +73,8 @@ def _expect_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, match: str,
     import app.main as main_module
 
     _prepare_boot(monkeypatch, tmp_path, **env)
-    with pytest.raises(BaseException) as caught:
-        with TestClient(main_module.app):
-            pass
+    with pytest.raises(BaseException) as caught, TestClient(main_module.app):
+        pass
     refused = _raise_cause(caught.value)
     assert refused is not None, f"startup did not refuse, got {caught.value!r}"
     assert match in str(refused)
@@ -135,12 +135,15 @@ def test_dev_insecure_loopback_starts_and_warns(
     import app.main as main_module
 
     _prepare_boot(monkeypatch, tmp_path, JARVIS_DEV_INSECURE="1", JARVIS_HOST="127.0.0.1")
-    with caplog.at_level(logging.WARNING):
-        with TestClient(main_module.app) as client:
-            health = client.get("/health")
-            assert health.status_code == 200
-            assert health.json()["auth_enabled"] is False
-            assert client.get("/api/v1/greeting").status_code == 200
+    logger = logging.getLogger("jarvis")
+    logger.addHandler(caplog.handler)
+    caplog.set_level(logging.WARNING, logger="jarvis")
+    with TestClient(main_module.app) as client:
+        health = client.get("/health")
+        assert health.status_code == 200
+        assert health.json()["auth_enabled"] is False
+        assert client.get("/api/v1/greeting").status_code == 200
+    logger.removeHandler(caplog.handler)
     assert "authentication is DISABLED" in caplog.text
     assert "JARVIS_DEV_INSECURE=1" in caplog.text
 
@@ -209,10 +212,26 @@ def _filled(path: str) -> str:
         "todo_id": "todo_missing",
         "track": "build",
         "node_id": "node_missing",
+        "brand_id": "brand_missing",
+        "client_id": "client_missing",
+        "project_id": "project_missing",
+        "campaign_id": "campaign_missing",
+        "contact_id": "contact_missing",
+        "lead_id": "lead_missing",
+        "task_id": "task_missing",
+        "deliverable_id": "deliverable_missing",
+        "estimate_id": "estimate_missing",
+        "template_id": "template_missing",
+        "channel_id": "channel_missing",
+        "slot_id": "slot_missing",
+        "approval_id": "approval_missing",
+        "item_id": "item_missing",
+        "id": "id_missing",
     }
     filled = path
     for name, value in replacements.items():
         filled = filled.replace("{" + name + "}", value)
+    filled = re.sub(r"\{[^{}]+\}", "missing", filled)
     assert "{" not in filled, filled
     return filled
 
@@ -254,9 +273,8 @@ def test_every_protected_route_is_401_without_auth(client) -> None:
 
 
 def test_log_socket_and_node_socket_require_auth(client) -> None:
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect("/ws/logs") as ws:
-            ws.receive_text()
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws/logs") as ws:
+        ws.receive_text()
 
     with client.websocket_connect("/ws/node") as ws:
         ws.send_text(json.dumps({"type": "hello", "name": "impostor"}))
@@ -310,9 +328,8 @@ def test_expired_token_is_rejected(client, monkeypatch: pytest.MonkeyPatch) -> N
 
     clock["t"] += 60
     assert client.get("/api/v1/greeting", headers=bearer).status_code == 401
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect(f"/ws/logs?token={token}") as ws:
-            ws.receive_text()
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect(f"/ws/logs?token={token}") as ws:
+        ws.receive_text()
 
     get_settings.cache_clear()
 

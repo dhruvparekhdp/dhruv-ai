@@ -15,10 +15,11 @@ with name, value, confidence, page, and bbox.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping
+from typing import Any
 
 from app.adapters.client import AdapterClient
 from app.adapters.models import AdapterResponse, Outcome

@@ -11,7 +11,7 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -23,7 +23,7 @@ from app.adapters.trading.crypto import build_crypto_adapter
 from app.adapters.trading.nse import AUTH_ENV as NSE_AUTH_ENV
 from app.adapters.trading.nse import build_nse_adapter
 
-FIXED_NOW = datetime(2026, 11, 6, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
 TOKEN = "test-integration-token"
 FIXTURES = Path("docs/contracts/trading-v1/fixtures")
 
@@ -48,14 +48,14 @@ class Upstream:
     def script(self, *steps: dict[str, Any]) -> None:
         self._queue.extend(steps)
 
-    def start(self) -> "Upstream":
+    def start(self) -> Upstream:
         upstream = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:  # noqa: N802
+            def do_GET(self) -> None:
                 self._serve()
 
-            def do_POST(self) -> None:  # noqa: N802
+            def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length") or 0)
                 if length:
                     self.rfile.read(length)

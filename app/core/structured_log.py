@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.config import get_settings
@@ -22,9 +22,9 @@ class ContextFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         if not getattr(record, "correlation_id", ""):
-            record.correlation_id = current_correlation_id()  # type: ignore[attr-defined]
+            record.correlation_id = current_correlation_id()
         if not getattr(record, "mission_id", ""):
-            record.mission_id = current_mission_id()  # type: ignore[attr-defined]
+            record.mission_id = current_mission_id()
         return True
 
 
@@ -46,7 +46,7 @@ class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
             "level": record.levelname,
-            "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(
+            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(
                 timespec="milliseconds"
             ),
             "correlation_id": getattr(record, "correlation_id", "") or current_correlation_id(),

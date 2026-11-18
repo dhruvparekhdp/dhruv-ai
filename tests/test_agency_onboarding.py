@@ -8,13 +8,12 @@ still missing.
 from __future__ import annotations
 
 import pytest
-
 from agency import migrate, onboarding, store
 from agency.migrate import table_columns
 from agency.models import AccessStatus, AgencyConflict, AgencyError
 
 
-@pytest.fixture()
+@pytest.fixture
 def db(env):
     migrate.migrate_up()
     return store

@@ -9,7 +9,7 @@ clamps the day: 31 January becomes 28 February, and the following month is
 from __future__ import annotations
 
 import calendar
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.work_tasks.models import IST, Recurrence
 
@@ -33,7 +33,7 @@ def next_due(
         nxt = _add_month(local)
     else:
         return None
-    return nxt.astimezone(timezone.utc)
+    return nxt.astimezone(UTC)
 
 
 def _as_ist(value: datetime) -> datetime:

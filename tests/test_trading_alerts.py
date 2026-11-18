@@ -13,9 +13,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.alerts import briefing
+from app.alerts import store as alert_store
 from app.alerts.rules import (
     IST,
     AlertRules,
+    Delivery,
     EngineSnapshot,
     SignalFact,
     delivery_decision,
@@ -23,8 +25,6 @@ from app.alerts.rules import (
     in_quiet_hours,
     load_rules,
 )
-from app.alerts.rules import Delivery
-from app.alerts import store as alert_store
 from app.analytics.outcomes import compute_outcomes
 from app.missions import store as mission_store
 from app.missions.models import TaskStatus
@@ -78,7 +78,7 @@ def _snapshot(**overrides) -> EngineSnapshot:
     return EngineSnapshot(**base)
 
 
-@pytest.fixture()
+@pytest.fixture
 def inbox(env):
     alert_store.init_db()
     mission_store.init_db()
@@ -372,8 +372,8 @@ def test_unavailable_reads_do_not_invent_a_performance_figure() -> None:
 
 
 def test_inbox_route_lists_delivered_only(client) -> None:
-    from app.alerts.rules import AlertDraft
     from app.alerts import store
+    from app.alerts.rules import AlertDraft
 
     store.init_db()
     now = _at(8, 0)

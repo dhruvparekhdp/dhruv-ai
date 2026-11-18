@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.db import (
@@ -54,7 +54,7 @@ class MemoryError_(ValueError):
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def validate_scope(scope: str) -> str:
@@ -104,8 +104,8 @@ def validate_expires_at(expires_at: str | None) -> str | None:
     except ValueError as exc:
         raise MemoryError_("expires_at must be an ISO-8601 timestamp") from exc
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds")
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 def _refuse_secrets(key: str, value: str) -> None:
@@ -491,7 +491,7 @@ def candidates(scope: str = "", scope_key: str = "") -> list[dict[str, Any]]:
 
 def stats() -> dict[str, Any]:
     stamp = _now()
-    current = f"superseded_by IS NULL AND (expires_at IS NULL OR expires_at > ?)"
+    current = "superseded_by IS NULL AND (expires_at IS NULL OR expires_at > ?)"
     with get_conn() as conn:
         total = fetch_one(
             conn, f"SELECT COUNT(*) AS n FROM memory_entries WHERE {current}", (stamp,)

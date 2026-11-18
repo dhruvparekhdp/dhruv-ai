@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Iterator
+from typing import Any
 
 from app.core.db import execute, execute_script, fetch_all, fetch_one, get_conn
 from app.core.pricing import estimate
@@ -206,11 +207,11 @@ def format_usd(micros: int) -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    return datetime.now(UTC).date().isoformat()
 
 
 def _usd_env(name: str, default: Decimal) -> int:
@@ -253,7 +254,7 @@ def _filter(
 
 
 def _day_bounds(day: str) -> tuple[str, str]:
-    start = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    start = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=UTC)
     end = start + timedelta(days=1)
     return (
         start.isoformat(timespec="microseconds"),

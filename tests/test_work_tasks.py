@@ -11,18 +11,19 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.agents.runner import AgentRunner
-from app.missions.models import Mission, new_mission_id
 from app.missions import store as mission_store
+from app.missions.models import Mission, new_mission_id
 from app.tools.cloud.tasks import tasks_suggest
-from app.tools.registry import Capability, Risk, registry as tool_registry
-from app.work_tasks.models import Actor, TaskError, TaskStatus
+from app.tools.registry import Capability, Risk
+from app.tools.registry import registry as tool_registry
 from app.work_tasks import store
+from app.work_tasks.models import Actor, TaskError, TaskStatus
 from tests.conftest import scripted_router, text_result, tool_result
 
 IST = ZoneInfo("Asia/Kolkata")
 
 
-@pytest.fixture()
+@pytest.fixture
 def tasks(env):
     store.init_db()
     mission_store.init_db()

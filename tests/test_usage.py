@@ -11,9 +11,9 @@ import json
 
 from app.agents.runner import AgentRunner
 from app.core import usage
+from app.missions import store
 from app.missions.models import MissionStatus
 from app.missions.scheduler import MissionScheduler
-from app.missions import store
 from tests.conftest import scripted_router, text_result
 
 _PRICE = json.dumps(

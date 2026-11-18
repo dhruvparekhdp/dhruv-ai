@@ -11,7 +11,7 @@ tool says so. Tests inject an adapter so the suite never dials a real engine.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.adapters.models import Outcome
@@ -20,6 +20,7 @@ from app.adapters.trading.crypto import build_crypto_adapter
 from app.adapters.trading.nse import build_nse_adapter
 from app.analytics.narration import render_analysis
 from app.analytics.outcomes import compute_outcomes
+from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, ToolError, tool
 
 _LIST_RESOURCES = frozenset({"signals", "positions", "trades", "strategies"})
@@ -57,7 +58,7 @@ def _resolve(engine: str) -> Any | None:
 
 
 def _stamp(value: datetime) -> str:
-    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def format_read(*, source_engine: str, resource: str, read: TradingRead) -> str:
@@ -146,6 +147,7 @@ async def _read(engine: str, resource: str, limit: int | None) -> str:
     parameters=_parameters("crypto-signal-engine"),
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.EXTERNAL,
 )
 async def trading_crypto_read(resource: str, limit: int | None = None, **_: Any) -> str:
     return await _read("crypto", resource, limit)
@@ -161,6 +163,7 @@ async def trading_crypto_read(resource: str, limit: int | None = None, **_: Any)
     parameters=_parameters("nse-trade"),
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.EXTERNAL,
 )
 async def trading_nse_read(resource: str, limit: int | None = None, **_: Any) -> str:
     return await _read("nse", resource, limit)
@@ -218,6 +221,7 @@ async def _outcomes(engine: str) -> str:
     parameters={"type": "object", "properties": {}, "required": []},
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.EXTERNAL,
 )
 async def trading_crypto_outcomes(**_: Any) -> str:
     return await _outcomes("crypto")
@@ -234,6 +238,7 @@ async def trading_crypto_outcomes(**_: Any) -> str:
     parameters={"type": "object", "properties": {}, "required": []},
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.EXTERNAL,
 )
 async def trading_nse_outcomes(**_: Any) -> str:
     return await _outcomes("nse")

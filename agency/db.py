@@ -8,8 +8,9 @@ record, so agency work turns the check on for its own connections.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 from app.core.db import get_conn, is_postgres
 

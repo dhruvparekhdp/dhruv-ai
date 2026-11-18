@@ -6,15 +6,14 @@ network connection.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
-
 from agency import content, migrate, store, workflow
 from agency.models import AgencyConflict, AgencyError, ContentItemStatus
 
 
-@pytest.fixture()
+@pytest.fixture
 def db(env):
     migrate.migrate_up()
     return store
@@ -38,7 +37,7 @@ def _walk(brand_id: str, item_id: str, target: str, channel_id: str, approver_id
     if target == "archived":
         workflow.transition(brand_id, item_id, "archived", author="Ada")
         return
-    when = datetime(2026, 11, 6, 9, 0, tzinfo=timezone.utc)
+    when = datetime(2026, 11, 6, 9, 0, tzinfo=UTC)
     for status in workflow.FORWARD:
         if status.value == "idea":
             continue
@@ -66,7 +65,7 @@ def test_every_transition_and_its_revision(db):
             dst for dst in states if _allowed(src, dst)
         }
 
-    when = datetime(2026, 11, 6, 9, 0, tzinfo=timezone.utc)
+    when = datetime(2026, 11, 6, 9, 0, tzinfo=UTC)
     for src in states:
         for dst in states:
             item = content.create_item(personal.id, f"{src}-{dst}", author="Ada", body="body")

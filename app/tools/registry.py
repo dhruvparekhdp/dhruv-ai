@@ -15,9 +15,10 @@ Every tool declares:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Awaitable, Callable, Protocol
+from typing import Any, Protocol
 
 from app.nodes.models import NodeCapability
 from app.tools.policy import PolicyLevel

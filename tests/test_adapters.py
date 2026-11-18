@@ -12,7 +12,7 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -23,7 +23,7 @@ from app.adapters.envelope import require_data_fields
 from app.adapters.models import Outcome
 from app.adapters.secrets import SecretSource
 
-FIXED_NOW = datetime(2026, 11, 6, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
 TOKEN = "test-adapter-token"
 
 
@@ -56,14 +56,14 @@ class Upstream:
     def script(self, *steps: dict[str, Any]) -> None:
         self._queue.extend(steps)
 
-    def start(self) -> "Upstream":
+    def start(self) -> Upstream:
         upstream = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:  # noqa: N802
+            def do_GET(self) -> None:
                 self._serve()
 
-            def do_POST(self) -> None:  # noqa: N802
+            def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length") or 0)
                 if length:
                     self.rfile.read(length)
@@ -117,7 +117,7 @@ class Upstream:
             self._thread.join(timeout=2)
 
 
-@pytest.fixture()
+@pytest.fixture
 def upstream() -> Any:
     server = Upstream().start()
     try:
@@ -127,7 +127,7 @@ def upstream() -> Any:
 
 
 def _envelope(data: dict[str, Any], as_of: datetime, *, stale: bool = False) -> dict[str, Any]:
-    stamp = as_of.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    stamp = as_of.astimezone(UTC).isoformat().replace("+00:00", "Z")
     return {"data": data, "data_as_of": stamp, "stale": stale}
 
 

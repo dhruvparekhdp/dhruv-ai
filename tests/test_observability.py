@@ -10,6 +10,7 @@ import json
 import logging
 
 from app.core.redact import REDACTED, redact
+from tests.conftest import TEST_PASSCODE
 
 
 def test_redact_strips_labeled_secrets_and_leaves_the_rest() -> None:
@@ -74,7 +75,7 @@ def test_health_stays_a_liveness_probe(client) -> None:
 
 
 def test_ready_reports_database_scheduler_and_integrations(client) -> None:
-    response = client.get("/ready", headers={"X-Jarvis-Passcode": ""})
+    response = client.get("/ready", headers={"X-Jarvis-Passcode": TEST_PASSCODE})
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ready"
@@ -94,7 +95,7 @@ def test_ready_is_not_ready_when_the_database_ping_fails(client, monkeypatch) ->
     import app.main as main_module
 
     monkeypatch.setattr(main_module, "ping_database", lambda: False)
-    response = client.get("/ready", headers={"X-Jarvis-Passcode": ""})
+    response = client.get("/ready", headers={"X-Jarvis-Passcode": TEST_PASSCODE})
     assert response.status_code == 503
     body = response.json()
     assert body["status"] == "not_ready"

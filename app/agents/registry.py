@@ -22,7 +22,8 @@ from typing import Any
 import yaml
 
 from app.missions.models import Budget
-from app.tools.registry import Capability, registry as tool_registry
+from app.tools.registry import Capability
+from app.tools.registry import registry as tool_registry
 
 log = logging.getLogger("jarvis.agents")
 
@@ -123,7 +124,7 @@ class AgentRegistry:
     def __init__(self) -> None:
         self._agents: dict[str, AgentDefinition] = {}
 
-    def load(self, directory: Path | None = None) -> "AgentRegistry":
+    def load(self, directory: Path | None = None) -> AgentRegistry:
         """Load and validate every definition. Raises on the first bad file."""
         directory = directory or DEFINITIONS_DIR
         self._agents.clear()

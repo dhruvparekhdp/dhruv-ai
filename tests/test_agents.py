@@ -12,7 +12,8 @@ import pytest
 from app.agents.registry import AgentDefinition, AgentDefinitionError, AgentRegistry
 from app.agents.runner import AgentRunner
 from app.missions.models import Budget
-from app.tools.registry import Capability, Risk, check_permission, registry as tool_registry
+from app.tools.registry import Capability, Risk, check_permission
+from app.tools.registry import registry as tool_registry
 from tests.conftest import scripted_router, text_result, tool_result
 
 # asyncio_mode=auto in pytest.ini runs async tests without per-test markers.
@@ -138,7 +139,8 @@ async def test_dangerous_tool_parks_and_is_denied_without_a_hook(agents) -> None
 
 
 async def test_dangerous_tool_runs_once_approved(agents) -> None:
-    from app.memory.store import read as read_memory, write as write_memory
+    from app.memory.store import read as read_memory
+    from app.memory.store import write as write_memory
 
     write_memory("user", "city", "Pune")
 
@@ -173,7 +175,8 @@ async def test_dangerous_tool_runs_once_approved(agents) -> None:
 
 
 async def test_denied_approval_leaves_data_intact(agents) -> None:
-    from app.memory.store import read as read_memory, write as write_memory
+    from app.memory.store import read as read_memory
+    from app.memory.store import write as write_memory
 
     write_memory("user", "city", "Pune")
 

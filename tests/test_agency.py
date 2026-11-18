@@ -10,8 +10,6 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
-from pydantic import ValidationError
-
 from agency import migrate, seed, store
 from agency.db import agency_conn
 from agency.migrate import column_is_not_null, list_agency_tables, table_columns
@@ -36,6 +34,8 @@ from agency.schemas import (
     ClientRead,
     ContactRead,
 )
+from pydantic import ValidationError
+
 from app.core.db import execute
 
 try:
@@ -46,7 +46,7 @@ else:
     _INTEGRITY = (sqlite3.IntegrityError, psycopg.IntegrityError)
 
 
-@pytest.fixture()
+@pytest.fixture
 def db(env):
     migrate.migrate_up()
     return store

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any
@@ -123,12 +123,12 @@ def delivery_decision(
     """Quiet hours win over dedupe. Only a delivered row holds the window."""
     if in_quiet_hours(now, rules.quiet_start, rules.quiet_end):
         return Delivery.SUPPRESSED
-    current = _require_aware(now).astimezone(timezone.utc)
+    current = _require_aware(now).astimezone(UTC)
     cutoff = current - rules.dedupe_window
     for key, delivered_at in recent_delivered:
         if key != dedupe_key:
             continue
-        at = _require_aware(delivered_at).astimezone(timezone.utc)
+        at = _require_aware(delivered_at).astimezone(UTC)
         if at >= cutoff:
             return Delivery.DUPLICATE
     return Delivery.DELIVER
@@ -253,7 +253,7 @@ def _breaches(snapshot: EngineSnapshot) -> list[AlertDraft]:
 def _stamp(value: datetime | None) -> str | None:
     if value is None:
         return None
-    return _require_aware(value).astimezone(timezone.utc).isoformat()
+    return _require_aware(value).astimezone(UTC).isoformat()
 
 
 def _percent(ratio: Decimal) -> str:

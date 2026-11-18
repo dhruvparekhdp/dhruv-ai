@@ -299,7 +299,7 @@ async def session(url: str, config: dict, tools: NodeTools, name: str, enrol_tok
                     reply = {"type": "result", "request_id": request_id, "ok": True, "output": output}
                 except ToolError as exc:
                     reply = {"type": "result", "request_id": request_id, "ok": False, "error": str(exc)}
-                except Exception as exc:  # noqa: BLE001 - never die on one bad call
+                except Exception as exc:
                     log.exception("tool %s failed", tool)
                     reply = {"type": "result", "request_id": request_id, "ok": False, "error": repr(exc)}
                 await socket.send(json.dumps(reply))

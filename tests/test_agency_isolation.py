@@ -8,15 +8,14 @@ brand's channel is refused and nothing is published.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
-
 from agency import content, migrate, store, workflow
 from agency.models import AgencyError, ContentItemStatus
 
 
-@pytest.fixture()
+@pytest.fixture
 def db(env):
     migrate.migrate_up()
     return store
@@ -116,7 +115,7 @@ def test_schedule_requires_the_same_brand_and_does_not_publish(db):
     item = content.create_item(personal.id, "Slot me", author="Ada", body="draft")
     own_channel = content.create_channel(personal.id, "Journal", "blog")
     other_channel = content.create_channel(client.id, "Client blog", "blog")
-    when = datetime(2026, 11, 6, 9, 0, tzinfo=timezone.utc)
+    when = datetime(2026, 11, 6, 9, 0, tzinfo=UTC)
 
     with pytest.raises(AgencyError):
         content.schedule_item(personal.id, item.id, other_channel.id, when, author="Ada")

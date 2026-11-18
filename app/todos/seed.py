@@ -16,8 +16,8 @@ and `jarvis` because it is what makes the job switch land at a higher band.
 
 from __future__ import annotations
 
-from app.todos.models import Source, TodoStatus, Track
 from app.todos import store
+from app.todos.models import Source, TodoStatus, Track
 
 #: (title, track, priority, status, notes)
 BACKLOG: list[tuple[str, Track, int, TodoStatus, str]] = [

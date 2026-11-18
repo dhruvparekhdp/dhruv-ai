@@ -29,6 +29,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.agent.engines import EngineError, EngineRouter, ToolCall
+from app.agents.registry import AgentDefinition
 from app.agents.trading_summary import (
     CONTRACT_INSTRUCTIONS,
     evidence_from_outputs,
@@ -37,12 +39,10 @@ from app.agents.trading_summary import (
     validate_trading_summary,
 )
 from app.analytics.narration import narration_problems
-from app.agent.engines import EngineError, EngineRouter, ToolCall
 from app.core import usage as usage_ledger
-from app.agents.registry import AgentDefinition
 from app.tools.executor import execute_tool
-from app.tools.registry import registry as tool_registry
 from app.tools.registry import check_permission
+from app.tools.registry import registry as tool_registry
 
 log = logging.getLogger("jarvis.runner")
 

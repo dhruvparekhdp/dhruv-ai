@@ -13,7 +13,7 @@ from typing import Any
 
 from app.memory import search as memory_search
 from app.memory import store
-from app.memory.store import MemoryError_, VALID_SCOPES
+from app.memory.store import VALID_SCOPES, MemoryError_
 from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, ToolError, tool
 

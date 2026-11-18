@@ -24,8 +24,8 @@ from typing import Any
 
 from app.agent import llm_budget
 from app.agent import router as intent_router
-from app.core.config import Settings, get_settings
 from app.core import usage as usage_ledger
+from app.core.config import Settings, get_settings
 
 log = logging.getLogger("jarvis.engines")
 
@@ -112,7 +112,7 @@ class GroqEngine:
 
         try:
             completion = self._get_client().chat.completions.create(**kwargs)
-        except Exception as exc:  # noqa: BLE001 - surfaced as EngineError
+        except Exception as exc:
             if "429" in str(exc):
                 llm_budget.mark_cooled(self.provider, 60.0)
             raise EngineError(f"Groq call failed: {exc}") from exc
@@ -243,7 +243,7 @@ class GeminiEngine:
                 contents=contents,
                 config=types.GenerateContentConfig(**config_kwargs),
             )
-        except Exception as exc:  # noqa: BLE001 - surfaced as EngineError
+        except Exception as exc:
             raise EngineError(f"Gemini call failed: {exc}") from exc
 
         calls: list[ToolCall] = []
@@ -299,7 +299,7 @@ class OllamaEngine:
                 response = client.post(f"{self.base_url}/api/chat", json=payload)
                 response.raise_for_status()
                 body = response.json()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise EngineError(f"Ollama call failed: {exc}") from exc
 
         message = body.get("message") or {}

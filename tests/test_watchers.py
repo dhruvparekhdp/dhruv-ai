@@ -8,8 +8,8 @@ from app.watchers import store
 from app.watchers.runner import run_watchers
 
 
-@pytest.fixture()
-def watchers_db(env):  # noqa: ANN001
+@pytest.fixture
+def watchers_db(env):
     store.init_db()
     return store
 

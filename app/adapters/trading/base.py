@@ -9,9 +9,10 @@ when the engine sends `is_stale: false`.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Generic, Mapping, TypeVar
+from datetime import UTC, datetime, timedelta
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -192,7 +193,7 @@ class TradingAdapter:
             return self._local_invalid("bad_query", "limit must be 1..500 and since must be timezone-aware")
         params: dict[str, Any] = {"limit": query.limit}
         if query.since is not None:
-            params["since"] = query.since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            params["since"] = query.since.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         return await self._read(path, model, params=params, correlation_id=correlation_id)
 
     async def _read(

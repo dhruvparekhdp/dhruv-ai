@@ -17,7 +17,8 @@ import logging
 import re
 from typing import Any
 
-from app.agents.registry import DEFAULT_AGENT_ID, PLANNER_AGENT_ID, registry as agent_registry
+from app.agents.registry import DEFAULT_AGENT_ID, PLANNER_AGENT_ID
+from app.agents.registry import registry as agent_registry
 from app.agents.runner import AgentRunner
 from app.missions.models import Budget, Task, TaskStatus, new_task_id
 

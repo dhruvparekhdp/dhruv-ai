@@ -78,7 +78,7 @@ class Budget:
         }
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any] | None) -> "Budget":
+    def from_dict(cls, raw: dict[str, Any] | None) -> Budget:
         if not raw:
             return cls()
         known = {f: raw[f] for f in cls.__dataclass_fields__ if f in raw}

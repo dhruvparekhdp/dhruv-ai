@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from app.core.db import ddl_types, execute, execute_script, fetch_all, get_conn
 
@@ -34,7 +35,7 @@ def _now() -> str:
     silently reverses the mood trend chart. `timespec="microseconds"` keeps the
     string fixed-width so SQLite's lexicographic sort stays chronological.
     """
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 # Turns whose reply the user explicitly rated bad are excluded from exports;
 # we keep the row (it is useful as a negative for preference tuning) but do not

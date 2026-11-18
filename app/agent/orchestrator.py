@@ -84,7 +84,7 @@ class Orchestrator:
                     system_prompt=effective_prompt,
                     user_prompt=user_prompt,
                 )
-        except Exception as exc:  # noqa: BLE001 - logged as a failed trajectory
+        except Exception as exc:
             latency_ms = int((time.perf_counter() - started) * 1000)
             log.exception("turn failed for session %s", session_id)
             telemetry.log_trajectory(

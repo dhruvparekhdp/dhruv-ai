@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, ToolError, tool
 
 TIMEOUT = 15.0
@@ -46,6 +47,7 @@ def _evaluate(body: dict[str, Any], path: str) -> bool:
     },
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.EXTERNAL,
 )
 async def http_check(
     url: str,

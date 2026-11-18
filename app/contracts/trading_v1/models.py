@@ -9,7 +9,7 @@ Mode is paper, shadow, or research. There is no live value to set.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Annotated, Generic, TypeVar
 
@@ -34,7 +34,7 @@ class StrictModel(BaseModel):
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("timestamp must be timezone-aware")
-    return value.astimezone(timezone.utc)
+    return value.astimezone(UTC)
 
 
 class SourceEngine(str, Enum):

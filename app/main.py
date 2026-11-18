@@ -14,34 +14,44 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, AsyncIterator
+from typing import Annotated, Any
 
+from agency.migrate import migrate_up
+from agency.router import router as agency_router
+from agency.seed import seed_if_empty
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.adapters.registry import registry as adapter_registry
 from app.agent import prompts
 from app.agent.orchestrator import orchestrator
 from app.agents.registry import registry as agent_registry
+from app.alerts import store as alert_store
 from app.channels import telegram as telegram_channel
-from app.schedule import runner as schedule_runner
-from app.schedule import store as schedule_store
-from app.schedule import jobs as schedule_jobs
-from app.watchers import store as watcher_store
+from app.core import usage as usage_ledger
 from app.core.config import get_settings
 from app.core.correlation import CorrelationMiddleware
 from app.core.db import ping_database
-from app.core.structured_log import configure_logging
+from app.core.http_guard import (
+    RequestGuardMiddleware,
+    SecurityHeadersMiddleware,
+    client_failure_detail,
+    cors_middleware_config,
+    enforce_rate_limit,
+    server_error_response,
+)
 from app.core.security import (
     TOKEN_HEADER,
     AuthGateMiddleware,
     StartupRefused,
-    check_passcode,
     attempt_login,
     auth_error,
     authorize,
@@ -51,41 +61,32 @@ from app.core.security import (
     require_passcode,
     revoke_token,
 )
-from app.core.http_guard import (
-    RequestGuardMiddleware,
-    SecurityHeadersMiddleware,
-    client_failure_detail,
-    cors_middleware_config,
-    enforce_rate_limit,
-    server_error_response,
-)
+from app.core.structured_log import configure_logging
 from app.core.telemetry import telemetry
 from app.devices import store as device_store
 from app.devices.store import DeviceError
-from app.core import usage as usage_ledger
-from app.missions import store as mission_store
-from app.missions.models import ApprovalDecision, Budget
 from app.memory import search as memory_search
 from app.memory import store as memory_store
+from app.missions import store as mission_store
+from app.missions.models import ApprovalDecision, Budget
 from app.missions.scheduler import scheduler
 from app.nodes import store as node_store
 from app.nodes.gateway import NoNodeAvailable, gateway
 from app.nodes.models import NodeStatus, parse_capabilities
+from app.schedule import jobs as schedule_jobs
+from app.schedule import runner as schedule_runner
+from app.schedule import store as schedule_store
 from app.services.websocket_manager import ws_manager
 from app.todos import reminders as todo_reminders
 from app.todos import seed as todo_seed
 from app.todos import store as todo_store
 from app.todos.models import TodoError
-from agency.migrate import migrate_up
-from agency.router import router as agency_router
-from agency.seed import seed_if_empty
+from app.tools import cloud as _cloud_tools  # noqa: F401 - import registers the tools
+from app.tools import node as _node_tools  # noqa: F401 - import registers the tools
+from app.tools.registry import registry as tool_registry
+from app.watchers import store as watcher_store
 from app.work_tasks import store as work_task_store
 from app.work_tasks.models import TaskError
-from app.tools import cloud as _cloud_tools  # noqa: F401 - import registers the tools
-from app.tools import node as _node_tools    # noqa: F401 - import registers the tools
-from app.adapters.registry import registry as adapter_registry
-from app.alerts import store as alert_store
-from app.tools.registry import registry as tool_registry
 
 configure_logging()
 log = logging.getLogger("jarvis")
@@ -200,9 +201,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     schedule_task: asyncio.Task | None = None
     schedule_enabled = os.getenv("JARVIS_SCHEDULE", "1").strip().lower() not in {"0", "false", "no", "off"}
     if schedule_enabled:
-        schedule_runner.runner.register("reminders", schedule_jobs.run_reminders)
-        schedule_runner.runner.register("watchers", schedule_jobs.run_watcher_job)
-        schedule_task = asyncio.create_task(schedule_runner.runner.run_loop(), name="schedule-loop")
+        schedule_runner.register("reminders", schedule_jobs.run_reminders)
+        schedule_runner.register("watchers", schedule_jobs.run_watcher_job)
+        schedule_task = asyncio.create_task(schedule_runner.run_loop(), name="schedule-loop")
     else:
         log.info("Background schedule disabled by JARVIS_SCHEDULE.")
 
@@ -210,7 +211,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         if schedule_task:
-            schedule_runner.runner.stop()
+            schedule_runner.stop()
             schedule_task.cancel()
             try:
                 await schedule_task
@@ -421,7 +422,7 @@ async def health() -> dict[str, Any]:
         "status": "ok",
         "service": "jarvis-host-engine",
         "version": app.version,
-        "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "time": datetime.now(UTC).isoformat(timespec="seconds"),
         "storage": settings.storage_backend,
         "storage_durable": settings.storage_backend == "postgres",
         "auth_enabled": settings.auth_enabled,
@@ -429,7 +430,7 @@ async def health() -> dict[str, Any]:
     }
     try:
         payload["telemetry"] = telemetry.stats()
-    except Exception as exc:  # noqa: BLE001 - health must never 500
+    except Exception as exc:
         log.exception("health telemetry failed")
         payload["status"] = "degraded"
         # str(exc) can be a DSN or a driver message. The probe only needs to
@@ -476,7 +477,7 @@ def _token_payload(token: str, expires_at: float) -> dict[str, Any]:
         "status": "success",
         "token_type": "bearer",
         "token": token,
-        "expires_at": datetime.fromtimestamp(expires_at, timezone.utc).isoformat(timespec="seconds"),
+        "expires_at": datetime.fromtimestamp(expires_at, UTC).isoformat(timespec="seconds"),
         "expires_in": settings.session_ttl_seconds,
     }
 
@@ -554,7 +555,7 @@ async def execute_command(req: CommandRequest, _: Guarded) -> dict[str, Any]:
             user_prompt=req.prompt,
             intent_override=req.intent_override,
         )
-    except Exception as exc:  # noqa: BLE001 - already logged as a failed trajectory
+    except Exception as exc:
         log.exception("command failed")
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, client_failure_detail("Engine failure", exc)
@@ -583,7 +584,7 @@ async def mood_checkin(req: MoodRequest, _: Guarded) -> dict[str, Any]:
         turn, checkin_id = await orchestrator.run_mood_checkin(
             session_id=req.session_id, score=req.score, note=req.note
         )
-    except Exception as exc:  # noqa: BLE001 - already logged as a failed trajectory
+    except Exception as exc:
         log.exception("mood check-in failed")
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, client_failure_detail("Engine failure", exc)
@@ -692,7 +693,7 @@ async def create_mission(req: MissionRequest, _: Guarded) -> dict[str, Any]:
     if req.wait_seconds:
         try:
             await scheduler.wait_for(mission.mission_id, timeout=req.wait_seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass   # still running; the client polls or watches the WebSocket
 
     refreshed = mission_store.get_mission(mission.mission_id) or mission
@@ -1231,7 +1232,7 @@ async def export_dataset(_: Guarded) -> StreamingResponse:
 
     Feeds straight into Unsloth / Axolotl / LLaMA-Factory.
     """
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     return StreamingResponse(
         telemetry.iter_sharegpt_jsonl(),
         media_type="application/x-ndjson",
@@ -1272,7 +1273,7 @@ async def websocket_logs(
             await websocket.receive_text()
     except WebSocketDisconnect:
         await ws_manager.disconnect(websocket)
-    except Exception:  # noqa: BLE001 - never let one socket kill the server
+    except Exception:
         log.exception("websocket error")
         await ws_manager.disconnect(websocket)
 
@@ -1292,7 +1293,7 @@ async def websocket_node(websocket: WebSocket) -> None:
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=15)
         hello = json.loads(raw)
-    except (asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
+    except (TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -1359,7 +1360,7 @@ async def websocket_node(websocket: WebSocket) -> None:
         pass
     except json.JSONDecodeError:
         await websocket.send_text(json.dumps({"type": "error", "error": "malformed JSON"}))
-    except Exception:  # noqa: BLE001 - one node must never take the server down
+    except Exception:
         log.exception("node socket error for %s", node_id)
     finally:
         await gateway.detach(node_id)

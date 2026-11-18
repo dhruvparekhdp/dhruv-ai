@@ -5,7 +5,7 @@ from __future__ import annotations
 from tests.conftest import TEST_PASSCODE
 
 
-def _checkin(client, device_id="iphone-1", **extra):  # noqa: ANN001
+def _checkin(client, device_id="iphone-1", **extra):
     body = {
         "device_id": device_id,
         "name": "Dhruv's iPhone",

@@ -7,14 +7,13 @@ fake embedder standing in for the real one).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from app.memory import search as memory_search
 from app.memory import store
 from app.memory.embeddings import cosine, pack, unpack
-
 
 # --- storage --------------------------------------------------------------
 
@@ -104,8 +103,8 @@ def test_correction_supersedes_and_retrieval_returns_the_current_version(agents)
 
 
 def test_expired_entries_are_hidden_and_purged(agents) -> None:
-    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-    future = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    future = (datetime.now(UTC) + timedelta(days=2)).isoformat()
 
     expired = store.write("user", "city", "Pune", expires_at=past)
     store.write("user", "city", "old name", expires_at=past)  # superseded, also due
@@ -289,7 +288,7 @@ class FakeEmbedder:
         return True
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_embeddings(agents, monkeypatch):
     fake = FakeEmbedder()
     monkeypatch.setattr(store, "embedder", fake)
@@ -405,7 +404,7 @@ def test_memory_api_rejects_a_secret_without_echoing_it(client) -> None:
 
 
 def test_memory_retention_endpoint_purges_expired_entries(client) -> None:
-    past = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    past = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
     created = client.post(
         "/api/v1/memory",
         json={"scope": "user", "key": "trip", "value": "already over", "expires_at": past},

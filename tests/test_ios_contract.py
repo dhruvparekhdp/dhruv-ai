@@ -10,7 +10,7 @@ a field name the app relies on, and this fails here instead of on the phone.
 from __future__ import annotations
 
 
-def _session(client) -> str:  # noqa: ANN001
+def _session(client) -> str:
     response = client.post("/api/v1/session/start", json={"client_type": "IOS_APP"})
     assert response.status_code == 201
     return response.json()["session_id"]
