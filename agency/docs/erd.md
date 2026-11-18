@@ -9,6 +9,10 @@ workspace. `Client.client_brand_id` points at it when both exist. Projects,
 content and campaigns for the customer use the client brand's id, not the
 agency's.
 
+`agy_channel_templates` and `agy_template_fields` are a shared catalog seeded
+for every brand. They are not a customer's content, so they have no
+`brand_id`. Checking a draft against them does not store the draft.
+
 `Approval.subject_id` is deliberately not a foreign key. One approval row can
 refer to content, a campaign, a deliverable or an estimate, and deleting the
 subject must not take the decision with it.
@@ -37,6 +41,7 @@ erDiagram
     Task ||--o{ Deliverable : "may own"
     Brand ||--o{ Channel : scopes
     Brand ||--o{ Template : scopes
+    ChannelTemplate ||--o{ TemplateField : limits
     Brand ||--o{ Campaign : scopes
     Brand ||--o{ ContentIdea : scopes
     ContentIdea ||--o{ ContentItem : "may become"
@@ -132,6 +137,20 @@ erDiagram
         text name
         text kind
         text body
+    }
+    ChannelTemplate {
+        text id PK
+        text platform
+        text slug
+        text name
+    }
+    TemplateField {
+        text id PK
+        text template_id FK
+        text field_key
+        int max_chars
+        int min_count
+        int max_count
     }
     Campaign {
         text id PK

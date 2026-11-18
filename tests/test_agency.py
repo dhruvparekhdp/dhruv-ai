@@ -19,13 +19,16 @@ from agency.models import (
     BRAND_SCOPED_MODELS,
     BRAND_SCOPED_TABLES,
     CAMPAIGN_TABLES,
+    CATALOG_TABLES,
     CONTENT_TABLES,
     PROJECT_TABLES,
     AgencyConflict,
     AgencyError,
     Brand,
     BrandKind,
+    ChannelTemplate,
     ClientStatus,
+    TemplateField,
 )
 from agency.schemas import (
     BRAND_SCOPED_CREATE_MODELS,
@@ -60,26 +63,34 @@ def _fails(sql: str, params: tuple = ()) -> None:
 
 
 def test_migrate_up_down_and_up_again(env):
-    assert migrate.migrate_up() == ["0001", "0002", "0003", "0004"]
+    assert migrate.migrate_up() == ["0001", "0002", "0003", "0004", "0005"]
     tables = set(list_agency_tables())
-    assert tables == set(BRAND_SCOPED_TABLES) | {"agy_brands", "agy_schema_migrations"}
+    assert tables == set(BRAND_SCOPED_TABLES) | set(CATALOG_TABLES) | {
+        "agy_brands",
+        "agy_schema_migrations",
+    }
     assert "source_item_id" in table_columns("agy_content_items")
     assert migrate.migrate_up() == []
 
-    assert migrate.migrate_down() == ["0004", "0003", "0002", "0001"]
+    assert migrate.migrate_down() == ["0005", "0004", "0003", "0002", "0001"]
     assert list_agency_tables() == []
     assert migrate.applied_versions() == []
     # A second down is a no-op, not an error.
     assert migrate.migrate_down() == []
 
-    assert migrate.migrate_up() == ["0001", "0002", "0003", "0004"]
+    assert migrate.migrate_up() == ["0001", "0002", "0003", "0004", "0005"]
     assert "agy_brands" in list_agency_tables()
 
 
 def test_migrate_down_one_step(env):
     migrate.migrate_up()
-    assert migrate.migrate_down(steps=1) == ["0004"]
+    assert migrate.migrate_down(steps=1) == ["0005"]
     assert "agy_brands" in list_agency_tables()
+    assert "agy_channel_templates" not in list_agency_tables()
+    assert "agy_template_fields" not in list_agency_tables()
+    assert "agy_approvers" in list_agency_tables()
+    assert "published_url" in table_columns("agy_content_items")
+    assert migrate.migrate_down(steps=1) == ["0004"]
     assert "agy_approvers" not in list_agency_tables()
     assert "author" not in table_columns("agy_content_revisions")
     assert "published_url" not in table_columns("agy_content_items")
@@ -103,6 +114,8 @@ def test_brand_is_root_and_children_require_brand_id(env):
     assert required <= set(BRAND_SCOPED_TABLES)
     for table in BRAND_SCOPED_TABLES:
         assert column_is_not_null(table, "brand_id"), table
+    for table in CATALOG_TABLES:
+        assert "brand_id" not in table_columns(table), table
 
 
 def test_content_project_and_campaign_rows_reject_a_missing_brand(db):
@@ -154,6 +167,8 @@ def test_domain_models_and_schemas_carry_brand_id():
     assert len(BRAND_SCOPED_MODELS) == len(BRAND_SCOPED_TABLES)
     for model in BRAND_SCOPED_MODELS:
         assert "brand_id" in model.__dataclass_fields__
+    assert "brand_id" not in ChannelTemplate.__dataclass_fields__
+    assert "brand_id" not in TemplateField.__dataclass_fields__
     for schema in BRAND_SCOPED_CREATE_MODELS:
         with pytest.raises(ValidationError) as exc:
             schema()
