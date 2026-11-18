@@ -87,7 +87,8 @@ a fabricated todo list would be acted on, which is worse than no list.
 
 ## Reminders
 
-Telegram, because the bot already exists:
+Telegram, via outbound reminders today (full inbound bot is Horizon A in
+[`RESTART-PLAN.md`](RESTART-PLAN.md)):
 
 ```bash
 export TELEGRAM_BOT_TOKEN=...

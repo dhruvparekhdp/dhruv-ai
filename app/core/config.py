@@ -44,6 +44,10 @@ class Settings:
     # unconfigured rather than inventing results.
     search_api_key: str
 
+    ollama_base_url: str
+    ollama_model: str
+    ollama_enabled: bool
+
     # --- Access control --------------------------------------------------
     # Phase 1 uses a single shared passcode. Phase 2 replaces this with JWT
     # bearer tokens + WebAuthn passkeys per the design doc.
@@ -90,6 +94,9 @@ def get_settings() -> Settings:
         groq_model=_env("GROQ_MODEL", "openai/gpt-oss-120b"),
         gemini_model=_env("GEMINI_MODEL", "gemini-2.5-flash"),
         search_api_key=_env("SEARCH_API_KEY"),
+        ollama_base_url=_env("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+        ollama_model=_env("OLLAMA_MODEL", "qwen2.5:7b-instruct"),
+        ollama_enabled=_env_bool("JARVIS_OLLAMA", False),
         passcode=_env("JARVIS_PASSCODE"),
         database_url=_env("DATABASE_URL"),
         sqlite_path=_env("JARVIS_DB_PATH", "jarvis_system.db"),
