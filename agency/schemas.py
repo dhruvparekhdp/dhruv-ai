@@ -1,8 +1,8 @@
 """Pydantic contracts for the agency domain.
 
 Create and read models exist for every entity so a later ticket can persist
-them without inventing a second shape. Update models exist for Brand, Client,
-Contact, and a content draft. A content update cannot carry a brand id.
+them without inventing a second shape. Update models exist for Brand, Client, Contact, a content draft, the brand
+profile, and an access row. A content or profile update cannot carry a brand id.
 
 ``brand_id`` is required on every create model except ``BrandCreate``. Brand
 is the root. Unknown fields are rejected so a typo does not silently drop.
@@ -11,6 +11,7 @@ is the root. Unknown fields are rejected so a typo does not silently drop.
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -23,12 +24,17 @@ from agency.models import (
     NAME_MAX,
     NOTES_MAX,
     PHONE_MAX,
+    PROFILE_LIST_MAX,
     ROLE_MAX,
+    SAMPLE_POST_MAX,
     SLUG_MAX,
     SLUG_PATTERN,
     TITLE_MAX,
     UNIT_MAX,
     URL_MAX,
+    WORD_MAX,
+    AccessPlatform,
+    AccessStatus,
     ApprovalStatus,
     ApprovalSubject,
     BrandKind,
@@ -609,6 +615,161 @@ class EstimateLineCreate(APIModel):
     sort_order: int = Field(default=0, ge=0)
 
 
+class ProfileCompetitorIn(APIModel):
+    name: str = Field(min_length=1, max_length=NAME_MAX)
+    website: str = Field(default="", max_length=URL_MAX)
+    notes: str = Field(default="", max_length=NOTES_MAX)
+
+
+class ProfileChannelIn(APIModel):
+    name: str = Field(min_length=1, max_length=NAME_MAX)
+    kind: ChannelKind
+
+
+class ProfileApprovalContactIn(APIModel):
+    name: str = Field(min_length=1, max_length=NAME_MAX)
+    email: str = Field(default="", max_length=EMAIL_MAX)
+    role: str = Field(default="", max_length=ROLE_MAX)
+
+
+class ProfileServiceIn(APIModel):
+    """A service the client already bought. Naming it does not create an order."""
+
+    name: str = Field(min_length=1, max_length=NAME_MAX)
+    notes: str = Field(default="", max_length=NOTES_MAX)
+
+
+class BrandProfileCreate(APIModel):
+    brand_id: str = _id_field()
+    goals: str = Field(default="", max_length=NOTES_MAX)
+    audience: str = Field(default="", max_length=NOTES_MAX)
+    positioning: str = Field(default="", max_length=NOTES_MAX)
+    voice_description: str = Field(default="", max_length=NOTES_MAX)
+    words_to_use: list[str] = Field(default_factory=list, max_length=PROFILE_LIST_MAX)
+    words_to_avoid: list[str] = Field(default_factory=list, max_length=PROFILE_LIST_MAX)
+    sample_posts: list[str] = Field(default_factory=list, max_length=PROFILE_LIST_MAX)
+    competitors: list[ProfileCompetitorIn] = Field(default_factory=list, max_length=PROFILE_LIST_MAX)
+    active_channels: list[ProfileChannelIn] = Field(default_factory=list, max_length=PROFILE_LIST_MAX)
+    approval_contacts: list[ProfileApprovalContactIn] = Field(
+        default_factory=list, max_length=PROFILE_LIST_MAX
+    )
+    services_bought: list[ProfileServiceIn] = Field(default_factory=list, max_length=PROFILE_LIST_MAX)
+
+    @field_validator("words_to_use", "words_to_avoid")
+    @classmethod
+    def words_fit(cls, value: list[str]) -> list[str]:
+        for item in value:
+            if len(item) > WORD_MAX:
+                raise ValueError(f"must be at most {WORD_MAX} characters")
+        return value
+
+    @field_validator("sample_posts")
+    @classmethod
+    def samples_fit(cls, value: list[str]) -> list[str]:
+        for item in value:
+            if len(item) > SAMPLE_POST_MAX:
+                raise ValueError(f"must be at most {SAMPLE_POST_MAX} characters")
+        return value
+
+
+class BrandProfileUpdate(APIModel):
+    goals: str | None = Field(default=None, max_length=NOTES_MAX)
+    audience: str | None = Field(default=None, max_length=NOTES_MAX)
+    positioning: str | None = Field(default=None, max_length=NOTES_MAX)
+    voice_description: str | None = Field(default=None, max_length=NOTES_MAX)
+    words_to_use: list[str] | None = Field(default=None, max_length=PROFILE_LIST_MAX)
+    words_to_avoid: list[str] | None = Field(default=None, max_length=PROFILE_LIST_MAX)
+    sample_posts: list[str] | None = Field(default=None, max_length=PROFILE_LIST_MAX)
+    competitors: list[ProfileCompetitorIn] | None = Field(default=None, max_length=PROFILE_LIST_MAX)
+    active_channels: list[ProfileChannelIn] | None = Field(default=None, max_length=PROFILE_LIST_MAX)
+    approval_contacts: list[ProfileApprovalContactIn] | None = Field(
+        default=None, max_length=PROFILE_LIST_MAX
+    )
+    services_bought: list[ProfileServiceIn] | None = Field(default=None, max_length=PROFILE_LIST_MAX)
+
+    @field_validator(
+        "goals",
+        "audience",
+        "positioning",
+        "voice_description",
+        "words_to_use",
+        "words_to_avoid",
+        "sample_posts",
+        "competitors",
+        "active_channels",
+        "approval_contacts",
+        "services_bought",
+    )
+    @classmethod
+    def present(cls, value: Any) -> Any:
+        return _reject_null(value)
+
+    @field_validator("words_to_use", "words_to_avoid")
+    @classmethod
+    def words_fit(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        for item in value:
+            if len(item) > WORD_MAX:
+                raise ValueError(f"must be at most {WORD_MAX} characters")
+        return value
+
+    @field_validator("sample_posts")
+    @classmethod
+    def samples_fit(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        for item in value:
+            if len(item) > SAMPLE_POST_MAX:
+                raise ValueError(f"must be at most {SAMPLE_POST_MAX} characters")
+        return value
+
+
+class BrandProfileRead(APIModel):
+    id: str
+    brand_id: str
+    goals: str
+    audience: str
+    positioning: str
+    voice_description: str
+    words_to_use: list[str]
+    words_to_avoid: list[str]
+    sample_posts: list[str]
+    competitors: list[dict[str, str]]
+    active_channels: list[dict[str, str]]
+    approval_contacts: list[dict[str, str]]
+    services_bought: list[dict[str, str]]
+    created_at: datetime
+    updated_at: datetime
+
+
+class AccessItemCreate(APIModel):
+    brand_id: str = _id_field()
+    platform: AccessPlatform
+    status: AccessStatus = AccessStatus.REQUESTED
+    notes: str = Field(default="", max_length=NOTES_MAX)
+
+
+class AccessItemUpdate(APIModel):
+    status: AccessStatus | None = None
+    notes: str | None = Field(default=None, max_length=NOTES_MAX)
+
+    @field_validator("status", "notes")
+    @classmethod
+    def present(cls, value: Any) -> Any:
+        return _reject_null(value)
+
+
+class AccessItemRead(APIModel):
+    id: str
+    brand_id: str
+    platform: AccessPlatform
+    status: AccessStatus
+    notes: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class EstimateLineRead(APIModel):
     id: str
     brand_id: str
@@ -646,4 +807,6 @@ BRAND_SCOPED_CREATE_MODELS: tuple[type[APIModel], ...] = (
     ServiceTemplateCreate,
     EstimateCreate,
     EstimateLineCreate,
+    BrandProfileCreate,
+    AccessItemCreate,
 )

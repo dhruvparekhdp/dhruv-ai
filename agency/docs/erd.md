@@ -51,6 +51,8 @@ erDiagram
     Campaign ||--o{ KPIDefinition : measures
     KPIDefinition ||--o{ MetricEntry : records
     Campaign ||--o{ MetricEntry : "may tag"
+    Brand ||--o| BrandProfile : "onboarding sheet"
+    Brand ||--o{ AccessItem : "access checklist"
     Brand ||--o{ Competitor : scopes
     Competitor ||--o{ ResearchNote : "may inform"
     Brand ||--o{ ServiceTemplate : scopes
@@ -183,6 +185,20 @@ erDiagram
         text kpi_id FK
         text campaign_id FK
         float value
+    }
+    BrandProfile {
+        text id PK
+        text brand_id FK "NOT NULL, one per brand"
+        text goals
+        text voice_description
+        text services_bought "names, not orders"
+    }
+    AccessItem {
+        text id PK
+        text brand_id FK "NOT NULL"
+        text platform
+        text status "requested, granted, not_needed"
+        text notes "no password or token column"
     }
     Competitor {
         text id PK
