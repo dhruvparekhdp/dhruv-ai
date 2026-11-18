@@ -192,6 +192,13 @@ parameter, because browsers can't set headers on a WS handshake.
 | `GET` | `/api/v1/missions/{id}` | Mission with its task graph and progress. |
 | `GET` | `/api/v1/missions/{id}/messages` | Audited message bus for one mission. |
 | `POST` | `/api/v1/missions/{id}/cancel` | Cancel a running mission. |
+| `GET` | `/api/v1/tasks` | Personal tasks. Suggested and open by default. |
+| `POST` | `/api/v1/tasks` | Add a task. Due times with no zone are IST. |
+| `GET` | `/api/v1/tasks/{id}` | One task. |
+| `PATCH` | `/api/v1/tasks/{id}` | Edit fields. Status is not patched. |
+| `DELETE` | `/api/v1/tasks/{id}` | Remove a task. |
+| `POST` | `/api/v1/tasks/{id}/accept` | Accept an agent suggestion. |
+| `POST` | `/api/v1/tasks/{id}/complete` | Complete an open task. A repeating task files the next one. |
 | `GET` | `/api/v1/agents` | Loaded agent definitions. |
 | `GET` | `/api/v1/tools` | Tools with capability and risk. |
 | `GET` | `/api/v1/adapters/health` | Adapter circuits and last result. Does not call upstreams. |
@@ -242,6 +249,8 @@ nodes/pc/      the node agent that runs on each machine
   missions/    models · store · planner · scheduler        (orchestration)
   tools/       registry · cloud/{memory,web}               (capability + risk)
   adapters/    base HTTP client, circuit breaker, registry
+  tools/       registry · cloud/{memory,web,tasks}        (capability + risk)
+  work_tasks/  personal tasks: IST due times, recurrence, suggestions
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
 tests/         213 tests, all offline
