@@ -642,4 +642,3 @@ reported as unavailable or invalid, and the field list stays empty.
 
 The token is `OCR_API_TOKEN`, read at call time. The local path is not sent;
 only the file's base name is. The tool is capability READ and risk SAFE.
-
