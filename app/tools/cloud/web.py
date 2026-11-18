@@ -16,6 +16,7 @@ import re
 from typing import Any
 
 from app.core.config import get_settings
+from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, ToolError, tool
 
 MAX_CHARS = 6_000
@@ -48,6 +49,8 @@ def _to_text(raw_html: str) -> str:
     },
     capability=Capability.READ,
     risk=Risk.SAFE,
+    # Leaves the machine. The older SAFE label only means "no local mutation".
+    policy=PolicyLevel.EXTERNAL,
 )
 async def web_fetch_tool(url: str, **_: Any) -> str:
     if not url.startswith(("http://", "https://")):
@@ -85,6 +88,7 @@ async def web_fetch_tool(url: str, **_: Any) -> str:
     },
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.EXTERNAL,
 )
 async def web_search_tool(query: str, **_: Any) -> str:
     settings = get_settings()

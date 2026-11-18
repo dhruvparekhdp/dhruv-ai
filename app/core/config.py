@@ -121,6 +121,11 @@ class Settings:
     llm_rate_limit: int
     rate_window_seconds: int
 
+    # --- Approvals ------------------------------------------------------
+    # How long an approval of one exact tool call stays usable. Single-use
+    # either way: consuming it or letting this elapse both end it.
+    approval_ttl_seconds: int
+
     # --- Misc ------------------------------------------------------------
     app_name: str
     debug: bool
@@ -185,6 +190,7 @@ def get_settings() -> Settings:
         mission_rate_limit=_env_int("JARVIS_MISSION_RATE_LIMIT", 10, minimum=1),
         llm_rate_limit=_env_int("JARVIS_LLM_RATE_LIMIT", 30, minimum=1),
         rate_window_seconds=_env_int("JARVIS_RATE_WINDOW_SECONDS", 60, minimum=1),
+        approval_ttl_seconds=_env_int("JARVIS_APPROVAL_TTL_SECONDS", 15 * 60, minimum=1),
         app_name=_env("JARVIS_APP_NAME", "Jarvis"),
         debug=_env_bool("JARVIS_DEBUG", False),
     )

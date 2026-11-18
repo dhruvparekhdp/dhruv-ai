@@ -145,11 +145,24 @@ async def test_dangerous_tool_runs_once_approved(agents) -> None:
     ])
     runner = AgentRunner(router)
 
-    async def approve(tool_name: str, arguments: dict) -> bool:
-        return True
+    from app.missions import store
+    from app.missions.models import ApprovalDecision
+
+    mission_id = "msn_approve"
+
+    async def approve(tool_name: str, arguments: dict) -> str:
+        approval_id = store.create_approval(
+            mission_id=mission_id, task_id="task_approve", agent_id="memory",
+            tool_name=tool_name, tool_arguments=arguments, risk="DANGEROUS",
+        )
+        store.decide_approval(approval_id, ApprovalDecision.APPROVED, decided_by="tester")
+        return approval_id
 
     result = await runner.run(
-        agents.get("memory"), objective="Forget my city.", approval_hook=approve
+        agents.get("memory"),
+        objective="Forget my city.",
+        mission_id=mission_id,
+        approval_hook=approve,
     )
 
     assert result.text == "Deleted."
@@ -167,8 +180,8 @@ async def test_denied_approval_leaves_data_intact(agents) -> None:
     ])
     runner = AgentRunner(router)
 
-    async def deny(tool_name: str, arguments: dict) -> bool:
-        return False
+    async def deny(tool_name: str, arguments: dict) -> None:
+        return None
 
     await runner.run(agents.get("memory"), objective="Forget my city.", approval_hook=deny)
 
@@ -218,6 +231,7 @@ async def test_unknown_tool_name_does_not_crash_the_task(agents) -> None:
     result = await AgentRunner(router).run(agents.get("memory"), objective="Try a bad tool.")
     assert result.text == "recovered"
     assert "unknown tool" in result.tool_log[0]["output"]
+    assert "not registered" in result.tool_log[0]["output"]
 
 
 async def test_context_is_scoped_to_the_task(agents) -> None:

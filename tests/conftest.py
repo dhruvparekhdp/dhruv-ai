@@ -76,6 +76,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.delenv("JARVIS_MAX_BODY_BYTES", raising=False)
     monkeypatch.delenv("JARVIS_MISSION_RATE_LIMIT", raising=False)
     monkeypatch.delenv("JARVIS_LLM_RATE_LIMIT", raising=False)
+    monkeypatch.delenv("JARVIS_APPROVAL_TTL_SECONDS", raising=False)
 
     if TEST_DATABASE_URL:
         monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)

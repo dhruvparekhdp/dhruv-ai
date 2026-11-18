@@ -40,7 +40,8 @@ Breaking any of these is a bug, not a refactor:
    structurally impossible rather than merely discouraged.
 2. **Permissions are enforced at the tool boundary**, never the agent. Danger lives in what gets
    done, not who asked.
-3. **`DANGEROUS` tools always park for human approval.** No exceptions, no agent-level override.
+3. **`DANGEROUS` and external tools always park for human approval.** The approval is a hash of
+   the tool name and its parameters, it expires, and it is single-use. No agent-level override.
 4. **Nothing important lives only in RAM.** Every mission/task transition is written immediately, so
    a crash costs in-flight latency and nothing else.
 5. **Context is assembled per task** from its explicit dependencies. There is no growing global
