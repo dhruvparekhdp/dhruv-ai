@@ -402,6 +402,7 @@ class ContentItem(Model):
     body: str = ""
     status: ContentItemStatus = ContentItemStatus.DRAFT
     scheduled_at: datetime | None = None
+    source_item_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
