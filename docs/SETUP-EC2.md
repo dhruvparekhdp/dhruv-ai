@@ -62,7 +62,7 @@ JARVIS_PASSCODE=replace-with-a-long-unique-random-value
 JARVIS_HOST=127.0.0.1
 JARVIS_PORT=8000
 JARVIS_SCHEDULE=1
-JARVIS_DB_PATH=/opt/jarvis/app/jarvis_system.db
+JARVIS_DB_PATH=/var/lib/jarvis/jarvis_system.db
 GROQ_API_KEY=
 GEMINI_API_KEY=
 # Optional, only if configured in this app:
@@ -85,13 +85,15 @@ User=jarvis
 Group=jarvis
 WorkingDirectory=/opt/jarvis/app
 EnvironmentFile=/etc/jarvis.env
+Environment=HOME=/var/lib/jarvis
 ExecStart=/opt/jarvis/app/.venv/bin/python -m app
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/jarvis/app
+StateDirectory=jarvis
+ReadWritePaths=/var/lib/jarvis
 
 [Install]
 WantedBy=multi-user.target
@@ -113,11 +115,25 @@ The service must stay on `127.0.0.1`. Do not set `JARVIS_ALLOW_PUBLIC_BIND=1` or
 
 ### Private access (recommended)
 
-Install Tailscale on the VM and your phone/laptop, sign both into the same personal tailnet, then use Tailscale Serve to expose the local app only to that tailnet. Keep AWS inbound rules closed. The Tailscale Personal plan currently supports up to six users and Funnel is available on all plans; confirm current plan terms if your use is commercial.
+On Ubuntu, install Tailscale and connect the VM to your personal tailnet:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+```
+
+Follow the sign-in URL, then install Tailscale on your phone/laptop and join the same tailnet. Serve the app's loopback port privately:
+
+```bash
+sudo tailscale serve 8000
+tailscale status
+```
+
+Open the `https://...ts.net` address shown by Serve from another tailnet device. Keep AWS inbound rules closed. Serve prompts you to enable HTTPS in the tailnet if it is not configured. The Tailscale Personal plan currently supports up to six users; confirm current plan terms if your use is commercial.
 
 ### Public access (only if you need a link anyone can open)
 
-Tailscale Funnel can expose the app to the public internet. Keep Jarvis authentication enabled, use a strong unique passcode, and verify the passcode prompt from a private browser. Public accessibility means anyone can reach the login surface and attempt guesses, even though the app includes login throttling. Do not put trading, exchange, or brokerage credentials into Jarvis.
+Tailscale Funnel can expose the app to the public internet, but it requires explicitly enabling Funnel for the node and using `tailscale funnel` instead of `tailscale serve`. Keep Jarvis authentication enabled, use a strong unique passcode, and verify the passcode prompt from a private browser. Public accessibility means anyone can reach the login surface and attempt guesses, even though the app includes login throttling. Do not put trading, exchange, or brokerage credentials into Jarvis.
 
 ## 6. Configure AI and market-data integrations
 

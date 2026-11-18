@@ -26,7 +26,6 @@
 1	app/core/db.py	assignment	Incompatible types in assignment (expression has type "sqlite3.Connection", variable has type "psycopg.connection.Connection[dict[str, Any]]")
 1	app/core/db.py	assignment	Incompatible types in assignment (expression has type "type[Row]", variable has type "RowFactory[dict[str, Any]]")
 2	app/main.py	type-arg	Missing type arguments for generic type "Task"
-1	app/memory/embeddings.py	attr-defined	"None" has no attribute "embed"
 1	app/memory/embeddings.py	no-any-return	Returning Any from function declared to return "float"
 1	app/memory/store.py	arg-type	Argument 1 to "float" has incompatible type "Any | int | None"; expected "str | Buffer | SupportsFloat | SupportsIndex"
 3	app/memory/store.py	index	Value of type "dict[str, Any] | None" is not indexable
