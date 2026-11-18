@@ -107,7 +107,7 @@ app/
     gateway.py             live sockets, capability placement, dispatch
   tools/
     registry.py            capability + risk + JSON schema; permission check lives here
-    cloud/                 memory, web, tasks (run in-process)
+    cloud/                 memory, web, tasks, trading, ocr (run in-process)
     node/                  fs, shell, system (declared here, run on a node)
   adapters/                typed HTTP client, per-adapter circuit, health rollup
   work_tasks/              personal tasks; agents may only suggest
@@ -117,6 +117,7 @@ nodes/pc/agent.py          the agent that runs on each machine
 ios/                       native iPhone client — see ios/README.md (built on a Mac, not here)
 docs/                      VISION, PLAN, ARCHITECTURE, DECISIONS, ROADMAP, SETUP-HOST, SETUP-NODE
     trading/             read-only crypto and NSE clients (trading-v1)
+    ocr.py               POST /v1/extract; stub when OCR_BASE_URL is unset
   contracts/             trading-v1 models; not mounted on the Jarvis API
   analytics/             paper and shadow outcome math; no model calls
   alerts/                in-app inbox, IST quiet hours, daily briefing mission

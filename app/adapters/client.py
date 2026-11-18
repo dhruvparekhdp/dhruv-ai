@@ -4,7 +4,7 @@ Guarantees:
   * credential comes from a secret source and is never placed in a log line
   * connect and read timeouts are bounded
   * GET is retried a bounded number of times with jitter; other methods are not
-    (a retried POST can double-apply a side effect)
+    (a retried POST can double-apply a side effect, including uploading a file twice)
   * each adapter has its own circuit breaker
   * every request carries X-Correlation-ID
   * the body is accepted only when it matches the envelope schema
@@ -104,14 +104,20 @@ class AdapterClient:
         *,
         params: Mapping[str, Any] | None = None,
         json_body: Any = None,
+        files: Mapping[str, Any] | None = None,
         correlation_id: str | None = None,
     ) -> AdapterResponse:
-        """Perform one logical call. Does not raise for upstream failures."""
+        """Perform one logical call. Does not raise for upstream failures.
+
+        `files` is a multipart body (httpx's shape). It is still one attempt
+        when the method is not GET. The file bytes are not logged.
+        """
         method = method.upper()
         correlation_id = correlation_id or str(uuid.uuid4())
         try:
             result = await self._request(
-                method, path, params=params, json_body=json_body, correlation_id=correlation_id
+                method, path, params=params, json_body=json_body, files=files,
+                correlation_id=correlation_id,
             )
         except Exception as exc:  # noqa: BLE001 - agents must not see this
             # Class name only. str(exc) from httpx can include request headers.
@@ -155,6 +161,7 @@ class AdapterClient:
         *,
         params: Mapping[str, Any] | None,
         json_body: Any,
+        files: Mapping[str, Any] | None,
         correlation_id: str,
     ) -> AdapterResponse:
         # Credential check happens before the breaker so a missing secret does
@@ -199,7 +206,7 @@ class AdapterClient:
             for attempt in range(attempts):
                 got = await self._attempt(
                     http, method, path, params=params, json_body=json_body,
-                    headers=headers, correlation_id=correlation_id,
+                    files=files, headers=headers, correlation_id=correlation_id,
                 )
                 if isinstance(got, AdapterResponse):
                     return got
@@ -236,6 +243,7 @@ class AdapterClient:
         *,
         params: Mapping[str, Any] | None,
         json_body: Any,
+        files: Mapping[str, Any] | None,
         headers: dict[str, str],
         correlation_id: str,
     ) -> AdapterResponse | tuple[str, str, int | None]:
@@ -243,7 +251,11 @@ class AdapterClient:
         request_kwargs: dict[str, Any] = {"headers": headers}
         if params is not None:
             request_kwargs["params"] = dict(params)
-        if json_body is not None:
+        if files is not None:
+            # Multipart sets its own Content-Type. A JSON body would replace
+            # the file, so the two are not combined.
+            request_kwargs["files"] = dict(files)
+        elif json_body is not None:
             request_kwargs["json"] = json_body
         try:
             response = await http.request(method, path, **request_kwargs)
