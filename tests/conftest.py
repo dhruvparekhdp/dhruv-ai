@@ -71,6 +71,11 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.setenv("JARVIS_SCHEDULE", "0")
     monkeypatch.setenv("JARVIS_TELEGRAM_POLL", "0")
+    monkeypatch.delenv("JARVIS_DEBUG", raising=False)
+    monkeypatch.delenv("JARVIS_CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("JARVIS_MAX_BODY_BYTES", raising=False)
+    monkeypatch.delenv("JARVIS_MISSION_RATE_LIMIT", raising=False)
+    monkeypatch.delenv("JARVIS_LLM_RATE_LIMIT", raising=False)
 
     if TEST_DATABASE_URL:
         monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
@@ -80,15 +85,18 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
     from app.core.config import get_settings
     from app.core.security import reset_auth_state
+    from app.core.http_guard import reset_rate_limits
 
     get_settings.cache_clear()
     reset_auth_state()
+    reset_rate_limits()
     if TEST_DATABASE_URL:
         _reset_postgres()
 
     yield
     get_settings.cache_clear()
     reset_auth_state()
+    reset_rate_limits()
 
 
 class ScriptedEngine:

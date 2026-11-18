@@ -14,13 +14,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, AsyncIterator
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -51,6 +50,14 @@ from app.core.security import (
     presented_token,
     require_passcode,
     revoke_token,
+)
+from app.core.http_guard import (
+    RequestGuardMiddleware,
+    SecurityHeadersMiddleware,
+    client_failure_detail,
+    cors_middleware_config,
+    enforce_rate_limit,
+    server_error_response,
 )
 from app.core.telemetry import telemetry
 from app.devices import store as device_store
@@ -153,6 +160,15 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     )
     if orchestrator.engines.is_degraded:
         log.warning("No GROQ_API_KEY or GEMINI_API_KEY set - running on local echo engine.")
+    if not settings.auth_enabled:
+        log.warning("No JARVIS_PASSCODE set - the API is unauthenticated.")
+    if settings.cors_wildcard_ignored:
+        # A star combined with credentials would reflect any Origin and send
+        # cookies. Dropping it is the whole point of the allowlist.
+        log.warning(
+            "JARVIS_CORS_ORIGINS contains '*', which is ignored. "
+            "List explicit origins; credentials are never paired with a wildcard."
+        )
     if settings.storage_backend == "sqlite":
         # The default on the host (D-027). Only a problem on a host whose disk
         # does not survive a restart.
@@ -209,24 +225,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Auth is added first so it sits inside CORS. CORS must be the outer layer,
-# otherwise a 401 from the gate would leave a cross-origin client with no
-# Access-Control headers and the browser would hide the real status.
-# The PWA is same-origin, so CORS is not needed for it. It stays open for the
-# Phase 2 Ionic dashboard during local development (ionic serve on :8100).
+# Innermost first. CORS is outermost so a 413 or 500 still carries the
+# allowlist headers for an origin that was actually named. Security headers
+# sit outside the body guard so those refusals get the browser policy too.
+# The PWA is same-origin and needs no CORS entry. JARVIS_CORS_ORIGINS is for
+# a second origin, such as the Ionic dev server on :8100.
+app.add_middleware(RequestGuardMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(AuthGateMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=os.getenv("JARVIS_CORS_ORIGINS", "*").split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    # The Ionic dev server is a different origin. Without this it cannot read
-    # the correlation id the middleware puts on the response.
-    expose_headers=["X-Correlation-ID"],
-)
-# Added last so it is the outermost middleware and the id is visible to every
-# route, including the ones that write missions.
+app.add_middleware(CORSMiddleware, **cors_middleware_config())
+# Correlation is the outermost wrapper, so every response carries the id.
 app.add_middleware(CorrelationMiddleware)
 
 # Own prefix and own tables. The passcode dependency sits on the router
@@ -235,6 +243,19 @@ app.add_middleware(CorrelationMiddleware)
 app.include_router(agency_router, prefix="/api/agency")
 
 Guarded = Annotated[None, Depends(require_passcode)]
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, exc: Exception) -> Any:
+    """Last resort. The client never sees a traceback or a settings value.
+
+    HTTPException and validation errors have their own handlers, which Starlette
+    picks first by walking the exception's class hierarchy. This one is for
+    everything that escaped a route. JARVIS_DEBUG may attach the trace; the
+    default body is a fixed sentence.
+    """
+    log.exception("unhandled error on %s %s", request.method, request.url.path)
+    return server_error_response(exc)
 
 
 # --------------------------------------------------------------------------
@@ -380,8 +401,11 @@ async def health() -> dict[str, Any]:
     try:
         payload["telemetry"] = telemetry.stats()
     except Exception as exc:  # noqa: BLE001 - health must never 500
+        log.exception("health telemetry failed")
         payload["status"] = "degraded"
-        payload["telemetry_error"] = str(exc)
+        # str(exc) can be a DSN or a driver message. The probe only needs to
+        # know that the counters could not be read.
+        payload["telemetry_error"] = type(exc).__name__ if settings.debug else "unavailable"
     return payload
 
 
@@ -492,6 +516,9 @@ async def execute_command(req: CommandRequest, _: Guarded) -> dict[str, Any]:
     if not telemetry.session_exists(req.session_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown session_id. Start a session first.")
 
+    # After the cheap existence check, before the model call. A missing
+    # session must not burn the window.
+    enforce_rate_limit("llm")
     try:
         turn = await orchestrator.run_turn(
             session_id=req.session_id,
@@ -499,7 +526,10 @@ async def execute_command(req: CommandRequest, _: Guarded) -> dict[str, Any]:
             intent_override=req.intent_override,
         )
     except Exception as exc:  # noqa: BLE001 - already logged as a failed trajectory
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Engine failure: {exc}") from exc
+        log.exception("command failed")
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, client_failure_detail("Engine failure", exc)
+        ) from exc
 
     return {
         "status": "success",
@@ -519,12 +549,16 @@ async def mood_checkin(req: MoodRequest, _: Guarded) -> dict[str, Any]:
     if not telemetry.session_exists(req.session_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown session_id. Start a session first.")
 
+    enforce_rate_limit("llm")
     try:
         turn, checkin_id = await orchestrator.run_mood_checkin(
             session_id=req.session_id, score=req.score, note=req.note
         )
     except Exception as exc:  # noqa: BLE001 - already logged as a failed trajectory
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Engine failure: {exc}") from exc
+        log.exception("mood check-in failed")
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, client_failure_detail("Engine failure", exc)
+        ) from exc
 
     return {
         "status": "success",
@@ -616,6 +650,9 @@ def _mission_payload(mission: Any, tasks: list[Any] | None = None) -> dict[str, 
 @app.post("/api/v1/missions", tags=["missions"], status_code=status.HTTP_201_CREATED)
 async def create_mission(req: MissionRequest, _: Guarded) -> dict[str, Any]:
     """Create a mission and start it in the background."""
+    # The planner and the agents are the expensive part. Refuse before
+    # create_mission so a flood never opens a mission row.
+    enforce_rate_limit("mission")
     mission = await scheduler.create_mission(
         goal=req.goal,
         session_id=req.session_id,
