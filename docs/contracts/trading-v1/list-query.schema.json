@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "description": "Query string for list routes. `limit` stops at 500.",
+  "properties": {
+    "limit": {
+      "default": 100,
+      "maximum": 500,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    },
+    "since": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Since"
+    }
+  },
+  "title": "ListQuery",
+  "type": "object"
+}

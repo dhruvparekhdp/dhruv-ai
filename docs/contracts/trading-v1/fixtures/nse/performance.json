@@ -1,0 +1,34 @@
+{
+  "source_engine": "nse-trade",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-06T11:59:31Z",
+  "data_as_of": "2026-11-06T11:59:30Z",
+  "status": "degraded",
+  "is_stale": false,
+  "mode": "shadow",
+  "correlation_id": "corr-fixture-1",
+  "data": {
+    "period": {
+      "label": "day",
+      "start": "2026-11-06T03:45:00Z",
+      "end": "2026-11-06T11:59:31Z"
+    },
+    "trades_count": 1,
+    "win_rate": "1",
+    "expectancy": {
+      "amount": "67.50",
+      "currency": "INR"
+    },
+    "max_drawdown": {
+      "amount": "0.00",
+      "currency": "INR"
+    },
+    "sharpe": null
+  },
+  "errors": [
+    {
+      "code": "partial_window",
+      "message": "one strategy window is incomplete"
+    }
+  ]
+}

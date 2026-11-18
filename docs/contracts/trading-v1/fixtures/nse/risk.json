@@ -1,0 +1,43 @@
+{
+  "source_engine": "nse-trade",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-06T11:59:31Z",
+  "data_as_of": "2026-11-06T11:59:30Z",
+  "status": "ok",
+  "is_stale": false,
+  "mode": "shadow",
+  "correlation_id": "corr-fixture-1",
+  "data": {
+    "exposure": [
+      {
+        "kind": "symbol",
+        "name": "RELIANCE",
+        "amount": {
+          "amount": "14802.50",
+          "currency": "INR"
+        }
+      },
+      {
+        "kind": "sector",
+        "name": "energy",
+        "amount": {
+          "amount": "14802.50",
+          "currency": "INR"
+        }
+      }
+    ],
+    "leverage": "1",
+    "limits": [
+      {
+        "name": "book_notional",
+        "max_notional": {
+          "amount": "200000.00",
+          "currency": "INR"
+        },
+        "max_leverage": "1"
+      }
+    ],
+    "breaches": []
+  },
+  "errors": []
+}

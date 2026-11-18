@@ -1,0 +1,63 @@
+{
+  "source_engine": "crypto-signal-engine",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-06T11:59:31Z",
+  "data_as_of": "2026-11-06T11:59:30Z",
+  "status": "degraded",
+  "is_stale": false,
+  "mode": "paper",
+  "correlation_id": "corr-fixture-1",
+  "data": {
+    "exposure": [
+      {
+        "kind": "symbol",
+        "name": "BTCUSDT",
+        "amount": {
+          "amount": "960.00",
+          "currency": "USDT"
+        }
+      },
+      {
+        "kind": "sector",
+        "name": "crypto",
+        "amount": {
+          "amount": "960.00",
+          "currency": "USDT"
+        }
+      }
+    ],
+    "leverage": "1",
+    "limits": [
+      {
+        "name": "book_notional",
+        "max_notional": {
+          "amount": "5000.00",
+          "currency": "USDT"
+        },
+        "max_leverage": "2"
+      }
+    ],
+    "breaches": [
+      {
+        "name": "single_name",
+        "message": "BTCUSDT is above the configured name cap.",
+        "limit_notional": {
+          "amount": "500.00",
+          "currency": "USDT"
+        },
+        "actual_notional": {
+          "amount": "960.00",
+          "currency": "USDT"
+        },
+        "limit_leverage": null,
+        "actual_leverage": null
+      }
+    ]
+  },
+  "errors": [
+    {
+      "code": "limit_breach",
+      "message": "single_name is open"
+    }
+  ]
+}

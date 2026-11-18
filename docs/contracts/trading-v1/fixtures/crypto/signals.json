@@ -1,0 +1,27 @@
+{
+  "source_engine": "crypto-signal-engine",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-06T11:59:31Z",
+  "data_as_of": "2026-11-06T11:59:30Z",
+  "status": "ok",
+  "is_stale": false,
+  "mode": "paper",
+  "correlation_id": "corr-fixture-1",
+  "data": {
+    "items": [
+      {
+        "id": "sig-btc-1",
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "strength": "0.72",
+        "strategy": "momentum",
+        "strategy_version": "3",
+        "generated_at": "2026-11-06T11:58:00Z",
+        "status": "active",
+        "rationale": "Higher-timeframe trend is up."
+      }
+    ],
+    "next_cursor": null
+  },
+  "errors": []
+}

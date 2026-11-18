@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "Money": {
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "title": "Amount",
+          "type": "string"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3,10}$",
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "title": "Money",
+      "type": "object"
+    },
+    "PerformancePeriod": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "format": "date-time",
+          "title": "End",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "start": {
+          "format": "date-time",
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "start",
+        "end"
+      ],
+      "title": "PerformancePeriod",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "expectancy": {
+      "$ref": "#/$defs/Money"
+    },
+    "max_drawdown": {
+      "$ref": "#/$defs/Money"
+    },
+    "period": {
+      "$ref": "#/$defs/PerformancePeriod"
+    },
+    "sharpe": {
+      "anyOf": [
+        {
+          "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Sharpe"
+    },
+    "trades_count": {
+      "minimum": 0,
+      "title": "Trades Count",
+      "type": "integer"
+    },
+    "win_rate": {
+      "pattern": "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+      "title": "Win Rate",
+      "type": "string"
+    }
+  },
+  "required": [
+    "period",
+    "trades_count",
+    "win_rate",
+    "expectancy",
+    "max_drawdown",
+    "sharpe"
+  ],
+  "title": "Performance",
+  "type": "object"
+}
