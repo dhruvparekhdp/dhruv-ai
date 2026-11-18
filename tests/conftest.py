@@ -32,8 +32,23 @@ TEST_DATABASE_URL = os.getenv("JARVIS_TEST_DATABASE_URL", "").strip()
 # Dropped and recreated between tests so each one starts empty.
 _TABLES = (
     "tool_executions", "mood_checkins", "agent_trajectories", "sessions",
-    "agent_messages", "approvals", "tasks", "missions", "memory_entries",
+    "agent_messages", "approvals", "tasks", "missions", "memory_audit", "llm_calls", "memory_entries",
     "nodes", "node_enrolments", "todos", "todo_tracks",
+    "device_reports", "channel_state",
+    "watcher_checks", "watchers", "schedule_jobs",
+    # Agency tables. CASCADE makes order irrelevant on Postgres; children are
+    # listed first anyway so a future drop without CASCADE still works.
+    "agy_template_fields", "agy_channel_templates",
+    "agy_access_items", "agy_brand_profiles",
+    "agy_estimate_lines", "agy_estimates", "agy_service_templates",
+    "agy_research_notes", "agy_competitors", "agy_metric_entries",
+    "agy_kpi_definitions", "agy_approvals", "agy_approvers", "agy_calendar_slots",
+    "agy_content_revisions", "agy_content_items", "agy_content_ideas",
+    "agy_templates", "agy_channels", "agy_campaigns", "agy_deliverables",
+    "agy_tasks", "agy_projects", "agy_lead_stage_history", "agy_leads",
+    "agy_contacts", "agy_clients", "agy_brands", "agy_schema_migrations",
+    "work_tasks",
+    "alerts",
 )
 
 
@@ -45,12 +60,27 @@ def _reset_postgres() -> None:
             execute(conn, f"DROP TABLE IF EXISTS {table} CASCADE")
 
 
-@pytest.fixture()
+@pytest.fixture
 def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Isolated settings + database for one test."""
     monkeypatch.setenv("JARVIS_PASSCODE", TEST_PASSCODE)
+    monkeypatch.setenv("JARVIS_HOST", "127.0.0.1")
+    monkeypatch.delenv("JARVIS_DEV_INSECURE", raising=False)
+    monkeypatch.delenv("JARVIS_ALLOW_PUBLIC_BIND", raising=False)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    # A developer's real bot token must never reach a test: the app would start
+    # long-polling it and answer the owner's real chat.
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setenv("JARVIS_SCHEDULE", "0")
+    monkeypatch.setenv("JARVIS_TELEGRAM_POLL", "0")
+    monkeypatch.delenv("JARVIS_DEBUG", raising=False)
+    monkeypatch.delenv("JARVIS_CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("JARVIS_MAX_BODY_BYTES", raising=False)
+    monkeypatch.delenv("JARVIS_MISSION_RATE_LIMIT", raising=False)
+    monkeypatch.delenv("JARVIS_LLM_RATE_LIMIT", raising=False)
+    monkeypatch.delenv("JARVIS_APPROVAL_TTL_SECONDS", raising=False)
 
     if TEST_DATABASE_URL:
         monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
@@ -59,13 +89,19 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         monkeypatch.delenv("DATABASE_URL", raising=False)
 
     from app.core.config import get_settings
+    from app.core.http_guard import reset_rate_limits
+    from app.core.security import reset_auth_state
 
     get_settings.cache_clear()
+    reset_auth_state()
+    reset_rate_limits()
     if TEST_DATABASE_URL:
         _reset_postgres()
 
     yield
     get_settings.cache_clear()
+    reset_auth_state()
+    reset_rate_limits()
 
 
 class ScriptedEngine:
@@ -83,7 +119,7 @@ class ScriptedEngine:
         self.script = list(script)
         self.calls: list[dict[str, Any]] = []
 
-    def chat(self, messages, tools=None, max_tokens=1200):  # noqa: ANN001
+    def chat(self, messages, tools=None, max_tokens=1200):
         self.calls.append({"messages": list(messages), "tools": tools})
         if not self.script:
             from app.agent.engines import EngineResult
@@ -91,7 +127,7 @@ class ScriptedEngine:
             return EngineResult(text="done", provider=self.provider, model=self.model)
         return self.script.pop(0)
 
-    def complete(self, system_prompt: str, user_prompt: str):  # noqa: ANN001
+    def complete(self, system_prompt: str, user_prompt: str):
         return self.chat(
             [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
         )
@@ -105,6 +141,7 @@ def scripted_router(script: list[Any]):
     engine = ScriptedEngine(script)
     router.groq = None
     router.gemini = None
+    router.ollama = None
     router.echo = engine
     return router, engine
 
@@ -129,15 +166,37 @@ def tool_result(name: str, arguments: dict[str, Any], call_id: str = "call_1"):
     )
 
 
-@pytest.fixture()
+def auto_approver(mission_id: str, task_id: str, agent_id: str):
+    """Create exact-call approvals scoped to the mission under test."""
+    async def approve(tool_name: str, arguments: dict[str, Any]) -> str:
+        from app.missions.models import ApprovalDecision
+        from app.missions.store import create_approval, decide_approval
+        from app.tools.registry import registry
+
+        tool = registry.get(tool_name)
+        assert tool is not None
+        approval_id = create_approval(
+            mission_id=mission_id,
+            task_id=task_id,
+            agent_id=agent_id,
+            tool_name=tool_name,
+            tool_arguments=arguments,
+            risk=tool.policy.value,
+        )
+        assert decide_approval(approval_id, ApprovalDecision.APPROVED, decided_by="test")
+        return approval_id
+    return approve
+
+
+@pytest.fixture
 def agents(env: None):
     """Loaded agent + tool registries against the temp database."""
-    import app.tools.cloud  # noqa: F401 - registers tools
-    import app.tools.node   # noqa: F401 - registers tools
+    import app.tools.cloud
+    import app.tools.node  # noqa: F401 - registers tools
     from app.agents.registry import registry as agent_registry
     from app.core.telemetry import telemetry as telemetry_engine
-    from app.missions import store
     from app.memory import store as memory_store
+    from app.missions import store
 
     telemetry_engine.init_db()
     store.init_db()
@@ -146,7 +205,7 @@ def agents(env: None):
     return agent_registry
 
 
-@pytest.fixture()
+@pytest.fixture
 def telemetry(env: None):
     """A TelemetryEngine backed by the temp database."""
     from app.core.telemetry import telemetry as engine
@@ -155,7 +214,7 @@ def telemetry(env: None):
     return engine
 
 
-@pytest.fixture()
+@pytest.fixture
 def client(env: None):
     """TestClient with the passcode header pre-attached.
 
@@ -175,7 +234,7 @@ def client(env: None):
         yield test_client
 
 
-@pytest.fixture()
+@pytest.fixture
 def session_id(client) -> str:
     response = client.post("/api/v1/session/start", json={})
     assert response.status_code == 201

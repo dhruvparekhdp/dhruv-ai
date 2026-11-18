@@ -159,7 +159,7 @@ class NodeGateway:
                 "timeout": timeout,
             }))
             return await asyncio.wait_for(future, timeout=timeout)
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise NoNodeAvailable(
                 f"node {node.name} did not answer '{tool}' within {timeout:.0f}s"
             ) from exc

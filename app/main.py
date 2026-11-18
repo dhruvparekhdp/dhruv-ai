@@ -15,44 +15,80 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, AsyncIterator
+from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from agency.migrate import migrate_up
+from agency.router import router as agency_router
+from agency.seed import seed_if_empty
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.adapters.registry import registry as adapter_registry
 from app.agent import prompts
 from app.agent.orchestrator import orchestrator
 from app.agents.registry import registry as agent_registry
+from app.alerts import store as alert_store
+from app.channels import telegram as telegram_channel
+from app.core import usage as usage_ledger
 from app.core.config import get_settings
-from app.core.security import check_passcode, require_passcode
+from app.core.correlation import CorrelationMiddleware
+from app.core.db import ping_database
+from app.core.http_guard import (
+    RequestGuardMiddleware,
+    SecurityHeadersMiddleware,
+    client_failure_detail,
+    cors_middleware_config,
+    enforce_rate_limit,
+    server_error_response,
+)
+from app.core.security import (
+    TOKEN_HEADER,
+    AuthGateMiddleware,
+    StartupRefused,
+    attempt_login,
+    auth_error,
+    authorize,
+    enforce_startup_policy,
+    issue_token,
+    presented_token,
+    require_passcode,
+    revoke_token,
+)
+from app.core.structured_log import configure_logging
 from app.core.telemetry import telemetry
-from app.missions import store as mission_store
-from app.missions.models import ApprovalDecision, Budget
+from app.devices import store as device_store
+from app.devices.store import DeviceError
 from app.memory import search as memory_search
 from app.memory import store as memory_store
+from app.missions import store as mission_store
+from app.missions.models import ApprovalDecision, Budget
 from app.missions.scheduler import scheduler
 from app.nodes import store as node_store
 from app.nodes.gateway import NoNodeAvailable, gateway
 from app.nodes.models import NodeStatus, parse_capabilities
+from app.schedule import jobs as schedule_jobs
+from app.schedule import runner as schedule_runner
+from app.schedule import store as schedule_store
 from app.services.websocket_manager import ws_manager
 from app.todos import reminders as todo_reminders
 from app.todos import seed as todo_seed
 from app.todos import store as todo_store
 from app.todos.models import TodoError
 from app.tools import cloud as _cloud_tools  # noqa: F401 - import registers the tools
-from app.tools import node as _node_tools    # noqa: F401 - import registers the tools
+from app.tools import node as _node_tools  # noqa: F401 - import registers the tools
 from app.tools.registry import registry as tool_registry
+from app.watchers import store as watcher_store
+from app.work_tasks import store as work_task_store
+from app.work_tasks.models import TaskError
 
-logging.basicConfig(
-    level=logging.DEBUG if get_settings().debug else logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
-)
+configure_logging()
 log = logging.getLogger("jarvis")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -61,18 +97,45 @@ STATIC_DIR = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    # Before any socket accepts work and before the database is opened. A
+    # missing passcode or an accidental public bind must not serve a single
+    # request, including /health.
+    try:
+        bind_host = enforce_startup_policy(settings)
+    except StartupRefused as exc:
+        # Expected policy failure, not a bug. Log the reason without a traceback
+        # so a journal full of stack frames does not hide the one line that matters.
+        log.error("%s", exc)
+        raise
 
     telemetry.init_db()
+    usage_ledger.init_db()
     mission_store.init_db()
     memory_store.init_db()
     node_store.init_db()
     todo_store.init_db()
+    device_store.init_db()
+    telegram_channel.init_db()
+    schedule_store.init_db()
+    watcher_store.init_db()
+    work_task_store.init_db()
+    alert_store.init_db()
 
     # Only writes on a genuinely empty table, so a restart neither duplicates
     # the backlog nor resurrects finished work.
     seeded = todo_seed.seed_if_empty()
     if seeded:
         log.info("Seeded %d starting todos.", seeded)
+
+    # Agency tables are versioned separately from the orchestrator schema.
+    # seed_if_empty also migrates, but the applied list is logged here so a
+    # boot that changed the schema says so.
+    applied = migrate_up()
+    if applied:
+        log.info("agency migrations applied: %s", ", ".join(applied))
+    seeded_brands = seed_if_empty()
+    if seeded_brands:
+        log.info("Seeded %d agency brands.", seeded_brands)
 
     # Tools are registered by the import above; agent definitions are validated
     # against them here, so a bad definition fails loudly at boot rather than
@@ -95,10 +158,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         )
 
     log.info(
-        "Jarvis up | storage=%s | engines=%s | auth=%s | agents=%s | tools=%d",
+        "Jarvis up | storage=%s | engines=%s | auth=%s | bind=%s | agents=%s | tools=%d",
         settings.storage_backend,
         ",".join(orchestrator.engines.available()),
         "on" if settings.auth_enabled else "OFF",
+        bind_host,
         ",".join(agent_registry.ids()),
         len(tool_registry.names()),
     )
@@ -106,12 +170,60 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         log.warning("No GROQ_API_KEY or GEMINI_API_KEY set - running on local echo engine.")
     if not settings.auth_enabled:
         log.warning("No JARVIS_PASSCODE set - the API is unauthenticated.")
-    if settings.storage_backend == "sqlite":
+    if settings.cors_wildcard_ignored:
+        # A star combined with credentials would reflect any Origin and send
+        # cookies. Dropping it is the whole point of the allowlist.
         log.warning(
-            "Using SQLite. On an ephemeral host this database is wiped on every "
-            "restart; set DATABASE_URL to a Postgres instance to keep telemetry."
+            "JARVIS_CORS_ORIGINS contains '*', which is ignored. "
+            "List explicit origins; credentials are never paired with a wildcard."
         )
-    yield
+    if settings.storage_backend == "sqlite":
+        # The default on the host (D-027). Only a problem on a host whose disk
+        # does not survive a restart.
+        log.info("Using SQLite at %s.", settings.sqlite_path)
+
+    purged = memory_store.purge_expired()
+    if purged:
+        log.info("purged %d expired memory entry(ies)", purged)
+
+    # Inbound Telegram. Off unless a token and the owner's chat ID are both set,
+    # and switchable off with JARVIS_TELEGRAM_POLL=0 — e.g. on a dev laptop
+    # while the host is polling the same bot (D-029: one poller per token).
+    telegram_task: asyncio.Task | None = None
+    channel: telegram_channel.TelegramChannel | None = None
+    poll_enabled = os.getenv("JARVIS_TELEGRAM_POLL", "1").strip().lower() not in {"0", "false", "no", "off"}
+    if telegram_channel.configured() and poll_enabled:
+        channel = telegram_channel.TelegramChannel()
+        telegram_task = asyncio.create_task(channel.run(), name="telegram-channel")
+    elif telegram_channel.configured():
+        log.info("Telegram inbound disabled by JARVIS_TELEGRAM_POLL.")
+
+    schedule_task: asyncio.Task | None = None
+    schedule_enabled = os.getenv("JARVIS_SCHEDULE", "1").strip().lower() not in {"0", "false", "no", "off"}
+    if schedule_enabled:
+        schedule_runner.register("reminders", schedule_jobs.run_reminders)
+        schedule_runner.register("watchers", schedule_jobs.run_watcher_job)
+        schedule_task = asyncio.create_task(schedule_runner.run_loop(), name="schedule-loop")
+    else:
+        log.info("Background schedule disabled by JARVIS_SCHEDULE.")
+
+    try:
+        yield
+    finally:
+        if schedule_task:
+            schedule_runner.stop()
+            schedule_task.cancel()
+            try:
+                await schedule_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutting down
+                pass
+        if channel and telegram_task:
+            channel.stop()
+            telegram_task.cancel()
+            try:
+                await telegram_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001 - shutting down
+                pass
 
 
 app = FastAPI(
@@ -121,22 +233,48 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# The PWA is same-origin, so CORS is not needed for it. It stays open for the
-# Phase 2 Ionic dashboard during local development (ionic serve on :8100).
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=os.getenv("JARVIS_CORS_ORIGINS", "*").split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Innermost first. CORS is outermost so a 413 or 500 still carries the
+# allowlist headers for an origin that was actually named. Security headers
+# sit outside the body guard so those refusals get the browser policy too.
+# The PWA is same-origin and needs no CORS entry. JARVIS_CORS_ORIGINS is for
+# a second origin, such as the Ionic dev server on :8100.
+app.add_middleware(RequestGuardMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(AuthGateMiddleware)
+app.add_middleware(CORSMiddleware, **cors_middleware_config())
+# Correlation is the outermost wrapper, so every response carries the id.
+app.add_middleware(CorrelationMiddleware)
+
+# Own prefix and own tables. The passcode dependency sits on the router
+# itself: this path is not under /api/v1, where the rest of the gate lives,
+# and leaving it open would expose client records on a reachable host.
+app.include_router(agency_router, prefix="/api/agency")
 
 Guarded = Annotated[None, Depends(require_passcode)]
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, exc: Exception) -> Any:
+    """Last resort. The client never sees a traceback or a settings value.
+
+    HTTPException and validation errors have their own handlers, which Starlette
+    picks first by walking the exception's class hierarchy. This one is for
+    everything that escaped a route. JARVIS_DEBUG may attach the trace; the
+    default body is a fixed sentence.
+    """
+    log.exception("unhandled error on %s %s", request.method, request.url.path)
+    return server_error_response(exc)
 
 
 # --------------------------------------------------------------------------
 # Schemas
 # --------------------------------------------------------------------------
+
+
+class LoginRequest(BaseModel):
+    # Absent is an attempt, not a validation error: the client must see 401,
+    # and the lockout must count it. Capped so a huge body cannot stall sha256.
+    passcode: str = Field(default="", max_length=500)
 
 
 class SessionStartRequest(BaseModel):
@@ -178,6 +316,10 @@ class MemoryWriteRequest(BaseModel):
     scope: str = Field(default="user", max_length=16)
     key: str = Field(min_length=1, max_length=200)
     value: str = Field(min_length=1, max_length=4000)
+    source_ref: str = Field(default="", max_length=128)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    sensitivity: str = Field(default="normal", max_length=16)
+    expires_at: str | None = Field(default=None, max_length=40)
 
 
 class MemoryUpdateRequest(BaseModel):
@@ -213,9 +355,43 @@ class TodoUpdateRequest(BaseModel):
     remind_at: str | None = None
 
 
+class DeviceCheckinRequest(BaseModel):
+    device_id: str = Field(min_length=1, max_length=100)
+    name: str = Field(default="", max_length=100)
+    platform: str = Field(default="", max_length=32)
+    model: str = Field(default="", max_length=64)
+    os_version: str = Field(default="", max_length=32)
+    app_version: str = Field(default="", max_length=32)
+    #: What produced this report: "app_open", "siri", "shortcut:arrived_office".
+    via: str = Field(default="", max_length=64)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+
 class TrackActiveRequest(BaseModel):
     is_active: bool
     note: str = Field(default="", max_length=500)
+
+
+class WorkTaskCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    notes: str = Field(default="", max_length=4000)
+    due_at: str | None = None
+    priority: int = Field(default=2, ge=1, le=3)
+    tags: list[str] = Field(default_factory=list)
+    recurrence: str = Field(default="none", max_length=16)
+    link_kind: str | None = None
+    link_id: str | None = None
+
+
+class WorkTaskUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    notes: str | None = Field(default=None, max_length=4000)
+    due_at: str | None = None
+    priority: int | None = Field(default=None, ge=1, le=3)
+    tags: list[str] | None = None
+    recurrence: str | None = Field(default=None, max_length=16)
+    link_kind: str | None = None
+    link_id: str | None = None
 
 
 class EnrolmentRequest(BaseModel):
@@ -246,7 +422,7 @@ async def health() -> dict[str, Any]:
         "status": "ok",
         "service": "jarvis-host-engine",
         "version": app.version,
-        "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "time": datetime.now(UTC).isoformat(timespec="seconds"),
         "storage": settings.storage_backend,
         "storage_durable": settings.storage_backend == "postgres",
         "auth_enabled": settings.auth_enabled,
@@ -254,10 +430,82 @@ async def health() -> dict[str, Any]:
     }
     try:
         payload["telemetry"] = telemetry.stats()
-    except Exception as exc:  # noqa: BLE001 - health must never 500
+    except Exception as exc:
+        log.exception("health telemetry failed")
         payload["status"] = "degraded"
-        payload["telemetry_error"] = str(exc)
+        # str(exc) can be a DSN or a driver message. The probe only needs to
+        # know that the counters could not be read.
+        payload["telemetry_error"] = type(exc).__name__ if settings.debug else "unavailable"
     return payload
+
+
+@app.get("/ready", tags=["system"])
+async def ready() -> JSONResponse:
+    """Readiness: database, scheduler, and which integrations are configured.
+
+    Unauthenticated, like /health, so a probe can call it. Optional
+    integrations that are not configured do not fail readiness: Jarvis is
+    meant to boot on the local engine with no keys. A database the process
+    cannot read does fail it. The body never includes a URL or a secret,
+    only configured / unconfigured.
+    """
+    database_ok = ping_database()
+    scheduler_ok = hasattr(scheduler, "_running")
+    settings = get_settings()
+    integrations = {
+        "echo": "configured",
+        "groq": "configured" if settings.groq_enabled else "unconfigured",
+        "gemini": "configured" if settings.gemini_enabled else "unconfigured",
+        "search": "configured" if settings.search_api_key else "unconfigured",
+        "telegram": "configured" if todo_reminders.configured() else "unconfigured",
+    }
+    ok = database_ok and scheduler_ok
+    return JSONResponse(
+        status_code=200 if ok else 503,
+        content={
+            "status": "ready" if ok else "not_ready",
+            "checks": {
+                "database": "ok" if database_ok else "error",
+                "scheduler": "ok" if scheduler_ok else "error",
+                "integrations": integrations,
+            },
+        },
+    )
+def _token_payload(token: str, expires_at: float) -> dict[str, Any]:
+    settings = get_settings()
+    return {
+        "status": "success",
+        "token_type": "bearer",
+        "token": token,
+        "expires_at": datetime.fromtimestamp(expires_at, UTC).isoformat(timespec="seconds"),
+        "expires_in": settings.session_ttl_seconds,
+    }
+
+
+@app.post("/api/v1/auth/login", tags=["auth"])
+async def login(req: LoginRequest) -> dict[str, Any]:
+    """Exchange the passcode for an expiring session token.
+
+    Failures share the global lockout with the passcode header, so guessing
+    on either door locks both. The token is the session; the passcode stays
+    the credential and is not returned.
+    """
+    decision = attempt_login(req.passcode)
+    if decision != "ok":
+        raise auth_error(decision)
+    token, expires_at = issue_token()
+    return _token_payload(token, expires_at)
+
+
+@app.post("/api/v1/auth/logout", tags=["auth"])
+async def logout(
+    _: Guarded,
+    x_jarvis_token: str | None = Header(default=None, alias=TOKEN_HEADER),
+    authorization: str | None = Header(default=None),
+) -> dict[str, str]:
+    """Revoke the presented session token. A passcode-only call has nothing to revoke."""
+    revoke_token(presented_token(x_jarvis_token, authorization))
+    return {"status": "success"}
 
 
 @app.get("/api/v1/greeting", tags=["chat"])
@@ -298,14 +546,20 @@ async def execute_command(req: CommandRequest, _: Guarded) -> dict[str, Any]:
     if not telemetry.session_exists(req.session_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown session_id. Start a session first.")
 
+    # After the cheap existence check, before the model call. A missing
+    # session must not burn the window.
+    enforce_rate_limit("llm")
     try:
         turn = await orchestrator.run_turn(
             session_id=req.session_id,
             user_prompt=req.prompt,
             intent_override=req.intent_override,
         )
-    except Exception as exc:  # noqa: BLE001 - already logged as a failed trajectory
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Engine failure: {exc}") from exc
+    except Exception as exc:
+        log.exception("command failed")
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, client_failure_detail("Engine failure", exc)
+        ) from exc
 
     return {
         "status": "success",
@@ -325,12 +579,16 @@ async def mood_checkin(req: MoodRequest, _: Guarded) -> dict[str, Any]:
     if not telemetry.session_exists(req.session_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown session_id. Start a session first.")
 
+    enforce_rate_limit("llm")
     try:
         turn, checkin_id = await orchestrator.run_mood_checkin(
             session_id=req.session_id, score=req.score, note=req.note
         )
-    except Exception as exc:  # noqa: BLE001 - already logged as a failed trajectory
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Engine failure: {exc}") from exc
+    except Exception as exc:
+        log.exception("mood check-in failed")
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, client_failure_detail("Engine failure", exc)
+        ) from exc
 
     return {
         "status": "success",
@@ -383,6 +641,7 @@ def _task_payload(task: Any) -> dict[str, Any]:
     return {
         "task_id": task.task_id,
         "agent_id": task.agent_id,
+        "correlation_id": task.correlation_id,
         "objective": task.objective,
         "status": task.status.value,
         "depends_on": task.depends_on,
@@ -398,6 +657,7 @@ def _task_payload(task: Any) -> dict[str, Any]:
 def _mission_payload(mission: Any, tasks: list[Any] | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "mission_id": mission.mission_id,
+        "correlation_id": mission.correlation_id,
         "goal": mission.goal,
         "status": mission.status.value,
         "summary": mission.summary,
@@ -420,6 +680,9 @@ def _mission_payload(mission: Any, tasks: list[Any] | None = None) -> dict[str, 
 @app.post("/api/v1/missions", tags=["missions"], status_code=status.HTTP_201_CREATED)
 async def create_mission(req: MissionRequest, _: Guarded) -> dict[str, Any]:
     """Create a mission and start it in the background."""
+    # The planner and the agents are the expensive part. Refuse before
+    # create_mission so a flood never opens a mission row.
+    enforce_rate_limit("mission")
     mission = await scheduler.create_mission(
         goal=req.goal,
         session_id=req.session_id,
@@ -430,7 +693,7 @@ async def create_mission(req: MissionRequest, _: Guarded) -> dict[str, Any]:
     if req.wait_seconds:
         try:
             await scheduler.wait_for(mission.mission_id, timeout=req.wait_seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass   # still running; the client polls or watches the WebSocket
 
     refreshed = mission_store.get_mission(mission.mission_id) or mission
@@ -482,6 +745,24 @@ async def list_agents(_: Guarded) -> dict[str, Any]:
 async def list_tools(_: Guarded) -> dict[str, Any]:
     tools = tool_registry.describe()
     return {"status": "success", "count": len(tools), "tools": tools}
+
+
+@app.get("/api/v1/alerts", tags=["alerts"])
+async def list_alerts(_: Guarded) -> dict[str, Any]:
+    """Delivered in-app alerts. Quiet-hours rows are stored and not listed."""
+    alerts = alert_store.inbox()
+    return {"status": "success", "count": len(alerts), "alerts": alerts}
+
+
+@app.get("/api/v1/adapters/health", tags=["adapters"])
+async def adapters_health(_: Guarded) -> dict[str, Any]:
+    """Circuit and last result for every registered adapter.
+
+    This does not call the upstreams. Probing on every read would open
+    circuits and spend rate limit on the observation itself.
+    """
+    report = adapter_registry.health()
+    return {"status": "success", **report}
 
 
 @app.get("/api/v1/approvals", tags=["agents"])
@@ -539,7 +820,14 @@ async def search_memory(
 @app.post("/api/v1/memory", tags=["memory"], status_code=status.HTTP_201_CREATED)
 async def write_memory(req: MemoryWriteRequest, _: Guarded) -> dict[str, Any]:
     try:
-        entry = memory_store.write(req.scope, req.key, req.value, source="user")
+        entry = memory_store.write(
+            req.scope, req.key, req.value,
+            source="user",
+            source_ref=req.source_ref,
+            confidence=req.confidence,
+            sensitivity=req.sensitivity,
+            expires_at=req.expires_at,
+        )
     except memory_store.MemoryError_ as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return {"status": "success", "entry": entry}
@@ -566,6 +854,12 @@ async def delete_memory(entry_id: str, _: Guarded) -> dict[str, Any]:
     if not memory_store.delete_by_id(entry_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown entry_id.")
     return {"status": "success", "entry_id": entry_id}
+
+
+@app.post("/api/v1/memory/retention", tags=["memory"])
+async def purge_memory(_: Guarded) -> dict[str, Any]:
+    """Run the retention job: hard-delete entries whose expires_at has passed."""
+    return {"status": "success", "purged": memory_store.purge_expired()}
 
 
 # --------------------------------------------------------------------------
@@ -679,6 +973,145 @@ async def sweep_reminders(_: Guarded) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# Reporting devices (the iPhone — D-013)
+# --------------------------------------------------------------------------
+
+
+@app.post("/api/v1/devices/checkin", tags=["devices"], status_code=status.HTTP_201_CREATED)
+async def device_checkin(req: DeviceCheckinRequest, _: Guarded) -> dict[str, Any]:
+    """A phone reporting on itself. Every check-in is kept, never overwritten."""
+    try:
+        report = device_store.record(
+            req.device_id, name=req.name, platform=req.platform, model=req.model,
+            os_version=req.os_version, app_version=req.app_version, via=req.via,
+            metrics=req.metrics,
+        )
+    except DeviceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    await ws_manager.broadcast("device", f"Check-in from {report['name'] or report['device_id']}")
+    return {"status": "success", "report": report}
+
+
+@app.get("/api/v1/devices", tags=["devices"])
+async def list_devices(_: Guarded) -> dict[str, Any]:
+    devices = device_store.latest_per_device()
+    return {"status": "success", "count": len(devices), "devices": devices}
+
+
+@app.get("/api/v1/devices/{device_id}/reports", tags=["devices"])
+async def device_reports(
+    device_id: str, _: Guarded, limit: int = Query(default=50, ge=1, le=500)
+) -> dict[str, Any]:
+    reports = device_store.history(device_id, limit=limit)
+    return {"status": "success", "count": len(reports), "reports": reports}
+
+
+@app.delete("/api/v1/devices/{device_id}", tags=["devices"])
+async def forget_device(device_id: str, _: Guarded) -> dict[str, Any]:
+    """Wipe everything a device has reported."""
+    removed = device_store.forget(device_id)
+    if removed == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No reports from that device.")
+    return {"status": "success", "device_id": device_id, "removed": removed}
+# Personal tasks
+#
+# Not mission steps and not the focus-todo list. Agents can only suggest.
+# --------------------------------------------------------------------------
+
+
+@app.get("/api/v1/tasks", tags=["tasks"])
+async def list_work_tasks(
+    _: Guarded,
+    task_status: str = Query(default="", max_length=16, alias="status"),
+    tag: str = Query(default="", max_length=32),
+    include_done: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict[str, Any]:
+    try:
+        tasks = work_task_store.list_tasks(
+            status=task_status or None,
+            tag=tag or None,
+            include_done=include_done,
+            limit=limit,
+        )
+    except TaskError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "count": len(tasks), "tasks": [item.to_dict() for item in tasks]}
+
+
+@app.post("/api/v1/tasks", tags=["tasks"], status_code=status.HTTP_201_CREATED)
+async def create_work_task(req: WorkTaskCreateRequest, _: Guarded) -> dict[str, Any]:
+    try:
+        task = work_task_store.create(
+            req.title,
+            actor="user",
+            notes=req.notes,
+            due_at=req.due_at,
+            priority=req.priority,
+            tags=req.tags,
+            recurrence=req.recurrence,
+            link_kind=req.link_kind,
+            link_id=req.link_id,
+        )
+    except TaskError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "task": task.to_dict()}
+
+
+@app.get("/api/v1/tasks/{task_id}", tags=["tasks"])
+async def get_work_task(task_id: str, _: Guarded) -> dict[str, Any]:
+    task = work_task_store.get(task_id)
+    if task is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown task_id.")
+    return {"status": "success", "task": task.to_dict()}
+
+
+@app.patch("/api/v1/tasks/{task_id}", tags=["tasks"])
+async def patch_work_task(task_id: str, req: WorkTaskUpdateRequest, _: Guarded) -> dict[str, Any]:
+    try:
+        task = work_task_store.update(task_id, **req.model_dump(exclude_unset=True))
+    except TaskError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if task is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown task_id.")
+    return {"status": "success", "task": task.to_dict()}
+
+
+@app.delete("/api/v1/tasks/{task_id}", tags=["tasks"])
+async def delete_work_task(task_id: str, _: Guarded) -> dict[str, Any]:
+    if not work_task_store.delete(task_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown task_id.")
+    return {"status": "success", "task_id": task_id}
+
+
+@app.post("/api/v1/tasks/{task_id}/accept", tags=["tasks"])
+async def accept_work_task(task_id: str, _: Guarded) -> dict[str, Any]:
+    try:
+        task = work_task_store.accept(task_id)
+    except TaskError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if task is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown task_id.")
+    return {"status": "success", "task": task.to_dict()}
+
+
+@app.post("/api/v1/tasks/{task_id}/complete", tags=["tasks"])
+async def complete_work_task(task_id: str, _: Guarded) -> dict[str, Any]:
+    try:
+        result = work_task_store.complete(task_id)
+    except TaskError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown task_id.")
+    done, nxt = result
+    return {
+        "status": "success",
+        "task": done.to_dict(),
+        "next_task": nxt.to_dict() if nxt else None,
+}
+
+
+# --------------------------------------------------------------------------
 # Fleet
 # --------------------------------------------------------------------------
 
@@ -768,6 +1201,26 @@ async def revoke_node(node_id: str, _: Guarded) -> dict[str, Any]:
     return {"status": "success", "node_id": node_id}
 
 
+@app.get("/api/usage", tags=["telemetry"])
+async def api_usage(
+    _: Guarded,
+    day: str = Query(default="", max_length=10),
+    mission_id: str = Query(default="", max_length=80),
+) -> dict[str, Any]:
+    """Token and estimated-cost breakdowns for the day, each agent, and each mission.
+
+    `day` is a UTC date, YYYY-MM-DD. Omit it and the agent and mission
+    breakdowns are for today, while `daily` still lists every day on record.
+    """
+    if day and len(day) != 10:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "day must be YYYY-MM-DD")
+    try:
+        body = usage_ledger.report(day=day, mission_id=mission_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "day must be YYYY-MM-DD") from exc
+    return {"status": "success", **body}
+
+
 @app.get("/api/v1/telemetry/stats", tags=["telemetry"])
 async def telemetry_stats(_: Guarded) -> dict[str, Any]:
     return {"status": "success", **telemetry.stats()}
@@ -779,7 +1232,7 @@ async def export_dataset(_: Guarded) -> StreamingResponse:
 
     Feeds straight into Unsloth / Axolotl / LLaMA-Factory.
     """
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     return StreamingResponse(
         telemetry.iter_sharegpt_jsonl(),
         media_type="application/x-ndjson",
@@ -793,14 +1246,21 @@ async def export_dataset(_: Guarded) -> StreamingResponse:
 
 
 @app.websocket("/ws/logs")
-async def websocket_logs(websocket: WebSocket, passcode: str | None = Query(default=None)) -> None:
+async def websocket_logs(
+    websocket: WebSocket,
+    token: str | None = Query(default=None),
+    passcode: str | None = Query(default=None),
+) -> None:
     """Live telemetry stream.
 
-    Browsers cannot set headers on a WebSocket handshake, so the passcode
-    arrives as a query parameter here. Rejected before accept() so an
-    unauthorised client never joins the broadcast set.
+    Browsers cannot set headers on a WebSocket handshake, so the session
+    token (or the passcode, for clients that have not moved to sessions)
+    arrives as a query parameter. Rejected before accept() so an
+    unauthorised client never joins the broadcast set. HTTP headers are
+    ignored here on purpose: the TestClient and some proxies attach the
+    REST passcode header to the upgrade, and a bad query must still fail.
     """
-    if not check_passcode(passcode):
+    if authorize(token, passcode) != "ok":
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -813,7 +1273,7 @@ async def websocket_logs(websocket: WebSocket, passcode: str | None = Query(defa
             await websocket.receive_text()
     except WebSocketDisconnect:
         await ws_manager.disconnect(websocket)
-    except Exception:  # noqa: BLE001 - never let one socket kill the server
+    except Exception:
         log.exception("websocket error")
         await ws_manager.disconnect(websocket)
 
@@ -833,7 +1293,7 @@ async def websocket_node(websocket: WebSocket) -> None:
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=15)
         hello = json.loads(raw)
-    except (asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
+    except (TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -900,7 +1360,7 @@ async def websocket_node(websocket: WebSocket) -> None:
         pass
     except json.JSONDecodeError:
         await websocket.send_text(json.dumps({"type": "error", "error": "malformed JSON"}))
-    except Exception:  # noqa: BLE001 - one node must never take the server down
+    except Exception:
         log.exception("node socket error for %s", node_id)
     finally:
         await gateway.detach(node_id)

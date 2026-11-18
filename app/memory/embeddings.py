@@ -18,6 +18,7 @@ import base64
 import logging
 import struct
 import threading
+from typing import Any
 
 log = logging.getLogger("jarvis.embeddings")
 
@@ -31,7 +32,7 @@ class Embedder:
 
     def __init__(self, model_name: str = MODEL_NAME) -> None:
         self.model_name = model_name
-        self._model = None
+        self._model: Any | None = None
         self._checked = False
         self._lock = threading.Lock()
 
@@ -61,7 +62,10 @@ class Embedder:
         if not texts or not self.available():
             return None
         try:
-            return [list(map(float, v)) for v in self._model.embed(texts)]
+            model = self._model
+            if model is None:
+                return None
+            return [list(map(float, v)) for v in model.embed(texts)]
         except Exception as exc:  # noqa: BLE001 - never break a write
             log.warning("embedding failed: %s", exc)
             return None

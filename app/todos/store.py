@@ -16,7 +16,7 @@ queried from a different entry point.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.db import ddl_types, execute, execute_script, fetch_all, fetch_one, get_conn
@@ -38,7 +38,7 @@ NOTES_MAX = 4000
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _parse_ts(value: Any) -> datetime | None:
@@ -53,12 +53,12 @@ def _parse_ts(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     try:
         parsed = datetime.fromisoformat(str(value).replace(" ", "T"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def init_db() -> None:
@@ -149,14 +149,14 @@ def _coerce_ts(value: Any, field: str) -> str | None:
     if value in (None, ""):
         return None
     if isinstance(value, datetime):
-        dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
         return dt.isoformat(timespec="microseconds")
     try:
         parsed = datetime.fromisoformat(str(value).replace(" ", "T").replace("Z", "+00:00"))
     except ValueError as exc:
         raise TodoError(f"{field} must be an ISO-8601 timestamp.") from exc
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed.isoformat(timespec="microseconds")
 
 

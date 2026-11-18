@@ -1,10 +1,10 @@
 """Reminder delivery over Telegram.
 
-Telegram rather than push notifications because the bot already exists and
-works — a reminder system that ships tonight beats one that ships after an
-APNs certificate. The `deliver` seam is deliberately narrow so a second
-channel (web push, the PWA) slots in beside it later without touching the
-scheduling logic.
+Telegram rather than push notifications: outbound `sendMessage` is enough for
+reminders today, and the same token becomes the inbound bot later. A reminder
+system that ships tonight beats one that ships after an APNs certificate. The
+`deliver` seam is deliberately narrow so a second channel (web push, the PWA)
+slots in beside it later without touching the scheduling logic.
 
 Follows the project's "never fabricate" invariant: with no bot token
 configured this reports itself unconfigured and sends nothing. It does **not**

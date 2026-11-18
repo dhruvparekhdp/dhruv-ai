@@ -3,3 +3,8 @@
 
 pytest==8.3.4
 pytest-asyncio==0.25.2   # the scheduler and runner are async
+
+# Checks invoked by the Makefile and CI. The app does not import these.
+ruff==0.17.4
+mypy==2.4.1
+pip-audit==2.10.1

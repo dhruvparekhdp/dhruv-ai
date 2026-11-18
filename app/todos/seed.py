@@ -16,8 +16,8 @@ and `jarvis` because it is what makes the job switch land at a higher band.
 
 from __future__ import annotations
 
-from app.todos.models import Source, TodoStatus, Track
 from app.todos import store
+from app.todos.models import Source, TodoStatus, Track
 
 #: (title, track, priority, status, notes)
 BACKLOG: list[tuple[str, Track, int, TodoStatus, str]] = [
@@ -27,7 +27,7 @@ BACKLOG: list[tuple[str, Track, int, TodoStatus, str]] = [
         Track.JARVIS,
         1,
         TodoStatus.NEXT,
-        "Multi-agent orchestrator, durable execution, node fleet, 150 tests — "
+        "Multi-agent orchestrator, durable execution, node fleet, 213 tests — "
         "currently invisible. Check `git log --all --full-history -- .env` first; "
         "empty output means it was never committed and it is safe as-is.",
     ),

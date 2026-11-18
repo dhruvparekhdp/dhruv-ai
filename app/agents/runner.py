@@ -14,29 +14,44 @@ Three properties matter more than the loop itself:
    dependency results. There is no growing global buffer, so one mission's
    context cannot leak into another's.
 
-3. **Every tool call is permission-checked at the boundary**, and dangerous
-   ones park for human approval rather than executing optimistically.
+3. **Every tool call is permission-checked at the boundary.** The handler is
+   reached only through `execute_tool`. External and dangerous calls run only
+   when a stored approval still matches that exact call.
 """
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-from app.agents.registry import AgentDefinition
 from app.agent.engines import EngineError, EngineRouter, ToolCall
-from app.tools.registry import Risk, ToolError, check_permission, registry as tool_registry
+from app.agents.registry import AgentDefinition
+from app.agents.trading_summary import (
+    CONTRACT_INSTRUCTIONS,
+    evidence_from_outputs,
+    rejection_text,
+    retry_message,
+    validate_trading_summary,
+)
+from app.analytics.narration import narration_problems
+from app.core import usage as usage_ledger
+from app.tools.executor import execute_tool
+from app.tools.registry import check_permission
+from app.tools.registry import registry as tool_registry
 
 log = logging.getLogger("jarvis.runner")
 
 #: Hard ceiling on model round-trips, independent of the agent's budget.
 #: Stops a model that keeps calling tools without ever concluding.
 MAX_ITERATIONS = 8
+#: How many times a trading summary may be rewritten after a failed check.
+#: The rejected draft is not stored.
+SUMMARY_RETRIES = 2
 
 
 class ApprovalRequired(Exception):
@@ -59,15 +74,23 @@ class RunResult:
     tool_calls: int = 0
     iterations: int = 0
     tool_log: list[dict[str, Any]] = field(default_factory=list)
+    # Set when a spend budget was crossed. The scheduler pauses; it does not
+    # treat this as a silent stop or as a task failure.
+    budget_exceeded: str = ""
+    #: Full tool outputs. The log truncates; validation must see every symbol.
+    tool_outputs: list[str] = field(default_factory=list)
+    #: False when a trading summary exhausted its retries. Other agents stay True.
+    accepted: bool = True
 
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
 
 
-#: Called with (tool_name, arguments) when a DANGEROUS tool is requested.
-#: Returns True to proceed, False to refuse. Raising ApprovalRequired parks the task.
-ApprovalHook = Callable[[str, dict[str, Any]], Awaitable[bool]]
+#: Called with (tool_name, arguments) when an action must be approved.
+#: Returns the approval id to proceed, or None to refuse. The executor
+#: recomputes the action hash and consumes that row; a bare yes is not enough.
+ApprovalHook = Callable[[str, dict[str, Any]], Awaitable[str | None]]
 
 
 class AgentRunner:
@@ -91,88 +114,135 @@ class AgentRunner:
         """
         started = time.perf_counter()
         budget = definition.budget
+        log.info("agent step agent=%s", definition.id)
 
+        system_prompt = definition.system_prompt
+        if definition.output_contract == "trading_summary":
+            system_prompt = f"{system_prompt}\n\n{CONTRACT_INSTRUCTIONS}"
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": definition.system_prompt},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": _build_user_message(objective, context)},
         ]
         schemas = tool_registry.schemas_for(definition.tools)
 
         result = RunResult(text="")
+        if definition.output_contract == "trading_summary":
+            # Stays false until a draft passes. A crash mid-loop must not store
+            # a summary that never cleared the check.
+            result.accepted = False
+        summary_attempts = 0
 
-        for iteration in range(1, MAX_ITERATIONS + 1):
-            result.iterations = iteration
+        # The scope covers the thread the router records from. asyncio.to_thread
+        # copies the current context, so the call lands on this mission and agent.
+        with usage_ledger.scope(mission_id, definition.id):
+            for iteration in range(1, MAX_ITERATIONS + 1):
+                result.iterations = iteration
 
-            elapsed = time.perf_counter() - started
-            if elapsed > budget.max_seconds:
-                result.text = result.text or (
-                    f"[stopped: exceeded the {budget.max_seconds}s time budget]"
-                )
-                break
-            if result.total_tokens > budget.max_tokens:
-                result.text = result.text or (
-                    f"[stopped: exceeded the {budget.max_tokens} token budget]"
-                )
-                break
+                elapsed = time.perf_counter() - started
+                if elapsed > budget.max_seconds:
+                    result.text = result.text or (
+                        f"[stopped: exceeded the {budget.max_seconds}s time budget]"
+                    )
+                    break
+                if result.total_tokens > budget.max_tokens:
+                    result.text = result.text or (
+                        f"[stopped: exceeded the {budget.max_tokens} token budget]"
+                    )
+                    break
 
-            try:
-                completion = await asyncio.to_thread(
-                    self.engines.chat,
-                    messages=messages,
-                    tools=schemas or None,
-                    prefer=definition.model_preference,
-                )
-            except EngineError as exc:
-                raise RuntimeError(f"all engines failed: {exc}") from exc
+                # Already over a spend budget: do not make another paid call.
+                over = usage_ledger.blocking(mission_id, definition.id)
+                if over:
+                    result.budget_exceeded = over
+                    result.text = result.text or f"[paused: {over}]"
+                    break
 
-            result.provider = completion.provider
-            result.model = completion.model
-            result.prompt_tokens += completion.prompt_tokens
-            result.completion_tokens += completion.completion_tokens
+                try:
+                    completion = await asyncio.to_thread(
+                        self.engines.chat,
+                        messages=messages,
+                        tools=schemas or None,
+                        prefer=definition.model_preference,
+                    )
+                except EngineError as exc:
+                    raise RuntimeError(f"all engines failed: {exc}") from exc
 
-            if not completion.wants_tools:
-                result.text = completion.text
-                break
+                result.provider = completion.provider
+                result.model = completion.model
+                result.prompt_tokens += completion.prompt_tokens
+                result.completion_tokens += completion.completion_tokens
 
-            # Record the assistant turn verbatim so the model sees its own call.
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": completion.text or "",
-                    "tool_calls": [
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {
-                                "name": call.name,
-                                "arguments": json.dumps(call.arguments),
-                            },
-                        }
-                        for call in completion.tool_calls
-                    ],
-                }
-            )
+                # The call is already on the ledger. Stop before tools or another
+                # round so crossing the budget does not keep spending.
+                over = usage_ledger.blocking(mission_id, definition.id)
+                if over:
+                    result.budget_exceeded = over
+                    result.text = completion.text or f"[paused: {over}]"
+                    break
 
-            for call in completion.tool_calls:
-                if result.tool_calls >= budget.max_tool_calls:
-                    messages.append(_tool_message(call, "[refused: tool-call budget exhausted]"))
+                if not completion.wants_tools:
+                    if definition.output_contract != "trading_summary":
+                        result.text = completion.text
+                        break
+                    problems = validate_trading_summary(
+                        completion.text or "",
+                        evidence_from_outputs(result.tool_outputs),
+                    )
+                    # Outcome math is already done. The draft may only repeat it.
+                    problems.extend(narration_problems(completion.text or "", result.tool_outputs))
+                    if not problems:
+                        result.text = completion.text
+                        result.accepted = True
+                        break
+                    summary_attempts += 1
+                    if summary_attempts > SUMMARY_RETRIES:
+                        result.text = rejection_text(problems)
+                        result.accepted = False
+                        break
+                    messages.append({"role": "assistant", "content": completion.text or ""})
+                    messages.append({"role": "user", "content": retry_message(problems)})
                     continue
 
-                result.tool_calls += 1
-                output = await self._invoke(
-                    definition,
-                    call,
-                    mission_id=mission_id,
-                    approval_hook=approval_hook,
-                    on_event=on_event,
+                # Record the assistant turn verbatim so the model sees its own call.
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": completion.text or "",
+                        "tool_calls": [
+                            {
+                                "id": call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": call.name,
+                                    "arguments": json.dumps(call.arguments),
+                                },
+                            }
+                            for call in completion.tool_calls
+                        ],
+                    }
                 )
-                result.tool_log.append(
-                    {"tool": call.name, "arguments": call.arguments, "output": output[:500]}
-                )
-                messages.append(_tool_message(call, output))
-        else:
-            # Loop ran to MAX_ITERATIONS without the model concluding.
-            result.text = result.text or "[stopped: too many tool-calling rounds without an answer]"
+
+                for call in completion.tool_calls:
+                    if result.tool_calls >= budget.max_tool_calls:
+                        messages.append(_tool_message(call, "[refused: tool-call budget exhausted]"))
+                        continue
+
+                    result.tool_calls += 1
+                    output = await self._invoke(
+                        definition,
+                        call,
+                        mission_id=mission_id,
+                        approval_hook=approval_hook,
+                        on_event=on_event,
+                    )
+                    result.tool_log.append(
+                        {"tool": call.name, "arguments": call.arguments, "output": output[:500]}
+                    )
+                    result.tool_outputs.append(output)
+                    messages.append(_tool_message(call, output))
+            else:
+                # Loop ran to MAX_ITERATIONS without the model concluding.
+                result.text = result.text or "[stopped: too many tool-calling rounds without an answer]"
 
         if not result.text:
             result.text = "[no answer produced]"
@@ -187,10 +257,10 @@ class AgentRunner:
         approval_hook: ApprovalHook | None,
         on_event: Callable[[str, str, dict[str, Any]], Awaitable[None]] | None,
     ) -> str:
-        """Permission-check and run one tool call, returning text for the model."""
+        """Ask the executor to run one call. The handler is not reached from here."""
         tool = tool_registry.get(call.name)
         if tool is None:
-            return f"[error: unknown tool '{call.name}']"
+            return f"[denied: unknown tool '{call.name}' is not registered]"
 
         verdict = check_permission(
             tool,
@@ -203,71 +273,27 @@ class AgentRunner:
                 await on_event("permission", f"Denied {call.name}: {verdict.reason}", {})
             return f"[denied: {verdict.reason}]"
 
+        approval_id: str | None = None
         if verdict.needs_approval:
             if approval_hook is None:
                 return "[denied: this tool requires human approval, which is unavailable here]"
-            approved = await approval_hook(call.name, call.arguments)
-            if not approved:
+            granted = await approval_hook(call.name, call.arguments)
+            if not isinstance(granted, str) or not granted:
                 return f"[denied: the user did not approve {call.name}]"
+            approval_id = granted
 
         if on_event:
             await on_event("tool", f"{definition.id} → {call.name}", {"arguments": call.arguments})
 
-        arguments = dict(call.arguments)
-        # Injected out-of-band so the model cannot spoof another mission's scope
-        # or misattribute who wrote a memory entry.
-        arguments["_mission_id"] = mission_id
-        arguments["_agent_id"] = definition.id
-
-        # Node tools do not run here -- they run on a machine in the fleet.
-        # The injected arguments are passed so the boundary filter below is
-        # load-bearing rather than decorative.
-        if tool.requires_node:
-            return await self._dispatch_to_node(tool, arguments)
-
-        try:
-            outcome = tool.handler(**arguments)
-            if inspect.isawaitable(outcome):
-                outcome = await outcome
-            return str(outcome)
-        except ToolError as exc:
-            return f"[error: {exc}]"
-        except TypeError as exc:
-            return f"[error: bad arguments for {call.name}: {exc}]"
-        except Exception as exc:  # noqa: BLE001 - never let a tool kill the task
-            log.exception("tool %s raised", call.name)
-            return f"[error: {call.name} failed: {exc}]"
-
-
-    async def _dispatch_to_node(self, tool: Any, arguments: dict[str, Any]) -> str:
-        """Send a node tool to a machine in the fleet and return its output.
-
-        Underscore-prefixed keys are orchestrator internals (mission scope,
-        calling agent). They are stripped here because the node has never heard
-        of them and its tool signatures would reject them.
-
-        A missing node is reported plainly rather than silently falling back to
-        running the work here -- that is what keeps "isolated sandbox" a
-        boundary rather than a label.
-        """
-        from app.nodes.gateway import NoNodeAvailable, gateway
-
-        try:
-            outcome = await gateway.dispatch(
-                tool=tool.name,
-                arguments={k: v for k, v in arguments.items() if not k.startswith("_")},
-                capability=tool.node_capability,
-                untrusted=tool.untrusted,
-            )
-        except NoNodeAvailable as exc:
-            return f"[unavailable: {exc}]"
-        except Exception as exc:  # noqa: BLE001 - a node fault must not kill the task
-            log.exception("node dispatch failed for %s", tool.name)
-            return f"[error: {tool.name} failed on the node: {exc}]"
-
-        if not outcome.get("ok"):
-            return f"[error: {outcome.get('error') or 'node reported failure'}]"
-        return str(outcome.get("output", ""))
+        return await execute_tool(
+            call.name,
+            dict(call.arguments),
+            granted_capabilities=definition.capabilities,
+            allowed_tools=definition.tools,
+            mission_id=mission_id,
+            agent_id=definition.id,
+            approval_id=approval_id,
+        )
 
 
 def _build_user_message(objective: str, context: str) -> str:

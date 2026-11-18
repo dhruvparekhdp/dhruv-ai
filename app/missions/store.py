@@ -14,10 +14,21 @@ purpose.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from app.core.db import ddl_types, execute, execute_script, fetch_all, fetch_one, get_conn
+from app.core.correlation import current_correlation_id
+from app.core.db import (
+    add_column_if_missing,
+    ddl_types,
+    execute,
+    execute_script,
+    fetch_all,
+    fetch_one,
+    get_conn,
+    is_postgres,
+    q,
+)
 from app.missions.models import (
     ApprovalDecision,
     Budget,
@@ -30,12 +41,24 @@ from app.missions.models import (
 )
 
 
+def _existing_columns(conn: Any, table: str) -> set[str]:
+    if is_postgres():
+        rows = fetch_all(
+            conn,
+            "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
+            (table,),
+        )
+        return {row["column_name"] for row in rows}
+    rows = fetch_all(conn, f"PRAGMA table_info({table})", ())
+    return {row["name"] for row in rows}
+
+
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def _future(seconds: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat(
         timespec="microseconds"
     )
 
@@ -51,12 +74,12 @@ def _parse_ts(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     try:
         parsed = datetime.fromisoformat(str(value).replace(" ", "T"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def init_db() -> None:
@@ -72,7 +95,8 @@ def init_db() -> None:
         status      TEXT NOT NULL,
         budget      {json},
         summary     TEXT DEFAULT '',
-        error       TEXT DEFAULT ''
+        error       TEXT DEFAULT '',
+        correlation_id TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
@@ -92,7 +116,8 @@ def init_db() -> None:
         lease_expires_at  {ts},
         prompt_tokens     INTEGER DEFAULT 0,
         completion_tokens INTEGER DEFAULT 0,
-        tool_calls        INTEGER DEFAULT 0
+        tool_calls        INTEGER DEFAULT 0,
+        correlation_id    TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS agent_messages (
@@ -104,7 +129,8 @@ def init_db() -> None:
         receiver       TEXT NOT NULL,
         action         TEXT NOT NULL,
         payload        {json},
-        status         TEXT DEFAULT ''
+        status         TEXT DEFAULT '',
+        correlation_id TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS approvals (
@@ -118,7 +144,10 @@ def init_db() -> None:
         tool_arguments {json},
         risk          TEXT NOT NULL,
         decision      TEXT NOT NULL,
-        decided_by    TEXT DEFAULT ''
+        decided_by    TEXT DEFAULT '',
+        params_hash   TEXT NOT NULL DEFAULT '',
+        expires_at    {ts},
+        consumed_at   {ts}
     );
 
     CREATE INDEX IF NOT EXISTS idx_tasks_mission   ON tasks(mission_id);
@@ -129,6 +158,19 @@ def init_db() -> None:
 
     with get_conn() as conn:
         execute_script(conn, script)
+        # Databases created before this column existed still have the table.
+        for table in ("missions", "tasks", "agent_messages"):
+            add_column_if_missing(conn, table, "correlation_id", "TEXT DEFAULT ''")
+        # Databases created before the hash columns existed keep their rows.
+        # A missing expiry fails closed: consume_approval treats NULL as expired.
+        have = _existing_columns(conn, "approvals")
+        for column, spec in {
+            "params_hash": "TEXT NOT NULL DEFAULT ''",
+            "expires_at": "{ts}",
+            "consumed_at": "{ts}",
+        }.items():
+            if column not in have:
+                execute(conn, f"ALTER TABLE approvals ADD COLUMN {column} {spec.format(**t)}")
 
 
 # --------------------------------------------------------------------------
@@ -157,6 +199,7 @@ def _row_to_mission(row: dict[str, Any]) -> Mission:
         budget=Budget.from_dict(_loads(row["budget"], {})),
         summary=row["summary"] or "",
         error=row["error"] or "",
+        correlation_id=row.get("correlation_id") or "",
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
     )
@@ -179,6 +222,7 @@ def _row_to_task(row: dict[str, Any]) -> Task:
         prompt_tokens=row["prompt_tokens"] or 0,
         completion_tokens=row["completion_tokens"] or 0,
         tool_calls=row["tool_calls"] or 0,
+        correlation_id=row.get("correlation_id") or "",
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
     )
@@ -198,13 +242,14 @@ def create_mission(mission: Mission) -> Mission:
             conn,
             """
             INSERT INTO missions (mission_id, session_id, created_at, updated_at,
-                                  goal, status, budget, summary, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  goal, status, budget, summary, error, correlation_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 mission.mission_id, mission.session_id, mission.created_at,
                 mission.updated_at, mission.goal, mission.status.value,
                 json.dumps(mission.budget.as_dict()), mission.summary, mission.error,
+                mission.correlation_id,
             ),
         )
     return mission
@@ -267,15 +312,16 @@ def create_tasks(tasks: list[Task]) -> list[Task]:
                 INSERT INTO tasks (task_id, mission_id, created_at, updated_at, agent_id,
                                    objective, status, depth, depends_on, result, error,
                                    attempts, idempotency_key, lease_expires_at,
-                                   prompt_tokens, completion_tokens, tool_calls)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   prompt_tokens, completion_tokens, tool_calls,
+                                   correlation_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task.task_id, task.mission_id, task.created_at, task.updated_at,
                     task.agent_id, task.objective, task.status.value, task.depth,
                     json.dumps(task.depends_on), task.result, task.error, task.attempts,
                     task.idempotency_key, task.lease_expires_at, task.prompt_tokens,
-                    task.completion_tokens, task.tool_calls,
+                    task.completion_tokens, task.tool_calls, task.correlation_id,
                 ),
             )
     return tasks
@@ -389,17 +435,22 @@ def log_message(
     whom' is answerable after the fact rather than only in a live log stream.
     """
     message_id = new_message_id()
+    # The scheduler binds the mission's correlation id before it writes, so
+    # an audit row records the request that caused it even after that request
+    # has returned.
+    correlation_id = current_correlation_id()
     with get_conn() as conn:
         execute(
             conn,
             """
             INSERT INTO agent_messages (message_id, mission_id, task_id, created_at,
-                                        sender, receiver, action, payload, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        sender, receiver, action, payload, status,
+                                        correlation_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 message_id, mission_id, task_id, _now(), sender, receiver, action,
-                json.dumps(payload or {}), status,
+                json.dumps(payload or {}), status, correlation_id,
             ),
         )
     return message_id
@@ -434,22 +485,97 @@ def create_approval(
     tool_name: str,
     tool_arguments: dict[str, Any],
     risk: str,
+    expires_at: str | None = None,
 ) -> str:
+    """Park one exact action.
+
+    `params_hash` is the digest of the tool name and these arguments. Execution
+    recomputes that digest and refuses the call when it differs. The row
+    expires at `expires_at` (default 15 minutes) and can be consumed once.
+    """
+    from app.core.config import get_settings
+    from app.tools.policy import action_hash
+
     approval_id = new_approval_id()
+    digest = action_hash(tool_name, tool_arguments)
+    expiry = expires_at or _future(get_settings().approval_ttl_seconds)
     with get_conn() as conn:
         execute(
             conn,
             """
             INSERT INTO approvals (approval_id, mission_id, task_id, created_at, decided_at,
-                                   agent_id, tool_name, tool_arguments, risk, decision, decided_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   agent_id, tool_name, tool_arguments, risk, decision,
+                                   decided_by, params_hash, expires_at, consumed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 approval_id, mission_id, task_id, _now(), None, agent_id, tool_name,
                 json.dumps(tool_arguments), risk, ApprovalDecision.PENDING.value, "",
+                digest, expiry, None,
             ),
         )
     return approval_id
+
+
+def consume_approval(
+    approval_id: str,
+    *,
+    tool_name: str,
+    tool_arguments: dict[str, Any],
+    mission_id: str,
+    now: datetime | None = None,
+) -> str | None:
+    """Use one approval for this exact call. Returns a reason, or None.
+
+    None means the row was marked used and the handler may run. A mismatch,
+    a second use, or an expiry does not mark the row used, except that a
+    second use is reported because the first use already did.
+    """
+    from app.tools.policy import action_hash
+
+    try:
+        digest = action_hash(tool_name, tool_arguments)
+    except TypeError:
+        return "approval was for a different action"
+
+    moment = now or datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+
+    with get_conn() as conn:
+        row = fetch_one(conn, "SELECT * FROM approvals WHERE approval_id = ?", (approval_id,))
+        if row is None:
+            return "unknown approval"
+        if row["mission_id"] != mission_id:
+            return "approval does not belong to this mission"
+        if row["params_hash"] != digest:
+            return "approval was for a different action"
+        if row["decision"] != ApprovalDecision.APPROVED.value:
+            return "approval was not granted"
+        if row["consumed_at"] is not None:
+            return "approval was already used"
+        expires = _parse_ts(row["expires_at"])
+        if expires is None or expires <= moment:
+            return "approval has expired"
+        cursor = conn.execute(
+            q(
+                """
+                UPDATE approvals SET consumed_at = ?
+                WHERE approval_id = ? AND decision = ? AND consumed_at IS NULL
+                  AND params_hash = ? AND mission_id = ?
+                """
+            ),
+            (
+                moment.isoformat(timespec="microseconds"),
+                approval_id,
+                ApprovalDecision.APPROVED.value,
+                digest,
+                mission_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            return "approval was already used"
+    return None
 
 
 def decide_approval(approval_id: str, decision: ApprovalDecision, decided_by: str = "user") -> bool:
@@ -469,14 +595,17 @@ def decide_approval(approval_id: str, decision: ApprovalDecision, decided_by: st
     return True
 
 
+def _stamp_approval(row: dict[str, Any]) -> dict[str, Any]:
+    row["tool_arguments"] = _loads(row["tool_arguments"], {})
+    for key in ("created_at", "decided_at", "expires_at", "consumed_at"):
+        row[key] = str(row[key]) if row.get(key) else None
+    return row
+
+
 def get_approval(approval_id: str) -> dict[str, Any] | None:
     with get_conn() as conn:
         row = fetch_one(conn, "SELECT * FROM approvals WHERE approval_id = ?", (approval_id,))
-    if row:
-        row["tool_arguments"] = _loads(row["tool_arguments"], {})
-        row["created_at"] = str(row["created_at"])
-        row["decided_at"] = str(row["decided_at"]) if row["decided_at"] else None
-    return row
+    return _stamp_approval(row) if row else None
 
 
 def list_pending_approvals() -> list[dict[str, Any]]:
@@ -486,11 +615,7 @@ def list_pending_approvals() -> list[dict[str, Any]]:
             "SELECT * FROM approvals WHERE decision = ? ORDER BY created_at ASC",
             (ApprovalDecision.PENDING.value,),
         )
-    for row in rows:
-        row["tool_arguments"] = _loads(row["tool_arguments"], {})
-        row["created_at"] = str(row["created_at"])
-        row["decided_at"] = str(row["decided_at"]) if row["decided_at"] else None
-    return rows
+    return [_stamp_approval(row) for row in rows]
 
 
 # --------------------------------------------------------------------------
@@ -509,7 +634,7 @@ def reconcile_orphaned_tasks() -> dict[str, int]:
     Called once at startup, before serving traffic.
     """
     now = _now()
-    now_dt = datetime.now(timezone.utc)
+    now_dt = datetime.now(UTC)
     requeued = 0
     resumed = 0
 

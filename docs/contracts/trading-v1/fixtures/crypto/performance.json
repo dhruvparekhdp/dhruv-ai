@@ -1,0 +1,29 @@
+{
+  "source_engine": "crypto-signal-engine",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-06T11:59:31Z",
+  "data_as_of": "2026-11-06T11:59:30Z",
+  "status": "ok",
+  "is_stale": false,
+  "mode": "paper",
+  "correlation_id": "corr-fixture-1",
+  "data": {
+    "period": {
+      "label": "session",
+      "start": "2026-11-06T09:15:00Z",
+      "end": "2026-11-06T11:59:31Z"
+    },
+    "trades_count": 4,
+    "win_rate": "0.50",
+    "expectancy": {
+      "amount": "3.25",
+      "currency": "USDT"
+    },
+    "max_drawdown": {
+      "amount": "18.00",
+      "currency": "USDT"
+    },
+    "sharpe": "1.40"
+  },
+  "errors": []
+}

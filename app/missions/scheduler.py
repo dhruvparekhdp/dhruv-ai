@@ -16,8 +16,11 @@ import logging
 import time
 from typing import Any
 
-from app.agents.registry import DEFAULT_AGENT_ID, registry as agent_registry
+from app.agents.registry import DEFAULT_AGENT_ID
+from app.agents.registry import registry as agent_registry
 from app.agents.runner import AgentRunner
+from app.core import usage as usage_ledger
+from app.core.correlation import bind_mission, current_correlation_id
 from app.missions import store
 from app.missions.models import (
     ApprovalDecision,
@@ -56,19 +59,24 @@ class MissionScheduler:
             session_id=session_id,
             budget=budget or Budget(),
             status=MissionStatus.PLANNING,
+            correlation_id=current_correlation_id(),
         )
-        store.create_mission(mission)
-        store.log_message(
-            mission_id=mission.mission_id,
-            sender="user",
-            receiver="orchestrator",
-            action="mission.create",
-            payload={"goal": goal},
-        )
-        await ws_manager.broadcast(
-            "mission", f"Mission created: {goal[:80]}",
-            mission_id=mission.mission_id, status=mission.status.value,
-        )
+        # Bind the mission id so the create audit row and the log line carry
+        # both ids. The request's correlation id is already set by middleware.
+        with bind_mission(mission.mission_id):
+            store.create_mission(mission)
+            store.log_message(
+                mission_id=mission.mission_id,
+                sender="user",
+                receiver="orchestrator",
+                action="mission.create",
+                payload={"goal": goal},
+            )
+            log.info("mission created")
+            await ws_manager.broadcast(
+                "mission", f"Mission created: {goal[:80]}",
+                mission_id=mission.mission_id, status=mission.status.value,
+            )
         return mission
 
     def start(self, mission_id: str) -> None:
@@ -111,6 +119,14 @@ class MissionScheduler:
         if mission is None:
             return
 
+        # The background task outlives the request. Re-bind the id that was
+        # stored with the mission so later logs still name that request.
+        with bind_mission(mission_id, mission.correlation_id):
+            log.info("mission started")
+            await self._run_mission_body(mission, started)
+
+    async def _run_mission_body(self, mission: Mission, started: float) -> None:
+        mission_id = mission.mission_id
         try:
             tasks = store.list_tasks(mission_id)
             if not tasks:
@@ -120,6 +136,8 @@ class MissionScheduler:
                     runner=self.runner,
                     budget=mission.budget,
                 )
+                for task in tasks:
+                    task.correlation_id = mission.correlation_id
                 store.create_tasks(tasks)
                 store.log_message(
                     mission_id=mission_id,
@@ -134,11 +152,15 @@ class MissionScheduler:
                 )
 
             store.update_mission(mission_id, status=MissionStatus.RUNNING)
+            # The planner call is already on the ledger. If it crossed a spend
+            # budget, do not dispatch the tasks it just created.
+            if await self._pause_if_over_budget(mission):
+                return
             await self._execute_graph(mission, started)
 
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001 - a mission must never take the server down
+        except Exception as exc:
             log.exception("mission %s crashed", mission_id)
             store.update_mission(mission_id, status=MissionStatus.FAILED, error=str(exc))
             await ws_manager.broadcast(
@@ -169,6 +191,9 @@ class MissionScheduler:
                 await self._abort(mission_id, tasks, exhausted)
                 return
 
+            if await self._pause_if_over_budget(mission):
+                return
+
             ready = self._ready_tasks(tasks)
             if not ready:
                 blocked = self._resolve_blocked(tasks)
@@ -181,12 +206,17 @@ class MissionScheduler:
                 *(self._execute_task(mission, task) for task in ready),
                 return_exceptions=True,
             )
+            paused = False
             for outcome in results:
                 if isinstance(outcome, BaseException):
                     log.error("task execution raised: %s", outcome)
                     continue
                 tokens_used += outcome.get("tokens", 0)
                 tool_calls_used += outcome.get("tool_calls", 0)
+                if outcome.get("paused"):
+                    paused = True
+            if paused:
+                return
 
     def _budget_exhausted(
         self, budget: Budget, *, elapsed: float, tokens: int, tool_calls: int, task_count: int
@@ -252,6 +282,7 @@ class MissionScheduler:
 
         store.lease_task(task.task_id, LEASE_SECONDS)
         store.update_task(task.task_id, attempts=task.attempts + 1)
+        log.info("task dispatched agent=%s task=%s", definition.id, task.task_id)
         store.log_message(
             mission_id=mission.mission_id,
             task_id=task.task_id,
@@ -277,7 +308,7 @@ class MissionScheduler:
                 approval_hook=self._approval_hook(mission, task, definition.id),
                 on_event=self._event_hook(mission.mission_id, task.task_id),
             )
-        except Exception as exc:  # noqa: BLE001 - one task failing must not kill the mission
+        except Exception as exc:
             log.exception("task %s failed", task.task_id)
             store.update_task(
                 task.task_id, status=TaskStatus.FAILED, error=str(exc), clear_lease=True
@@ -292,6 +323,39 @@ class MissionScheduler:
                 mission_id=mission.mission_id, task_id=task.task_id, status="FAILED",
             )
             return {"tokens": 0, "tool_calls": 0}
+
+        if outcome.budget_exceeded:
+            await self._pause_for_spend(mission, outcome.budget_exceeded)
+            return {
+                "tokens": outcome.total_tokens,
+                "tool_calls": outcome.tool_calls,
+                "paused": 1,
+            }
+        if not outcome.accepted:
+            # A rejected summary is a failed task. Storing the draft would let
+            # an invented holding ride into the mission summary.
+            store.update_task(
+                task.task_id,
+                status=TaskStatus.FAILED,
+                result="",
+                error=outcome.text,
+                clear_lease=True,
+                prompt_tokens=outcome.prompt_tokens,
+                completion_tokens=outcome.completion_tokens,
+                tool_calls=outcome.tool_calls,
+            )
+            store.log_message(
+                mission_id=mission.mission_id, task_id=task.task_id,
+                sender=definition.id, receiver="orchestrator",
+                action="task.failed",
+                payload={"error": "summary rejected"},
+                status="FAILED",
+            )
+            await ws_manager.broadcast(
+                "task", f"{definition.name} summary rejected",
+                mission_id=mission.mission_id, task_id=task.task_id, status="FAILED",
+            )
+            return {"tokens": outcome.total_tokens, "tool_calls": outcome.tool_calls}
 
         store.update_task(
             task.task_id,
@@ -331,17 +395,88 @@ class MissionScheduler:
                 chunks.append(f"[{dependency.agent_id}] {dependency.result}")
         return "\n\n".join(chunks)
 
+    async def _pause_if_over_budget(self, mission: Mission) -> bool:
+        """Pause when spend already exceeds a budget. Returns True if it paused.
+
+        Mission and daily limits apply on their own. The agent limit is checked
+        for the planner and for every task agent, because a planner call can
+        cross that agent's budget before any task is dispatched.
+        """
+        agent_ids = {task.agent_id for task in store.list_tasks(mission.mission_id)}
+        agent_ids.add("planner")
+        reason = ""
+        for agent_id in sorted(agent_ids):
+            reason = usage_ledger.blocking(mission.mission_id, agent_id)
+            if reason:
+                break
+        if not reason:
+            return False
+        await self._pause_for_spend(mission, reason)
+        return True
+
+    async def _pause_for_spend(self, mission: Mission, reason: str) -> None:
+        """Park the mission and ask for approval. This is not a failure.
+
+        The call that crossed the line stays in the usage ledger. Nothing
+        further is dispatched until a person decides. The error text is the
+        reason, so the pause is visible on the mission itself.
+        """
+        tasks = store.list_tasks(mission.mission_id)
+        open_tasks = [task for task in tasks if not task.is_terminal]
+        for task in open_tasks:
+            store.update_task(
+                task.task_id,
+                status=TaskStatus.NEEDS_APPROVAL,
+                error=reason,
+                clear_lease=True,
+            )
+        store.update_mission(
+            mission.mission_id, status=MissionStatus.NEEDS_APPROVAL, error=reason
+        )
+        anchor = open_tasks[0] if open_tasks else None
+        approval_id = store.create_approval(
+            mission_id=mission.mission_id,
+            task_id=anchor.task_id if anchor else "",
+            agent_id=anchor.agent_id if anchor else "",
+            tool_name="budget.exceeded",
+            tool_arguments={"reason": reason},
+            risk="BUDGET",
+        )
+        store.log_message(
+            mission_id=mission.mission_id,
+            task_id=anchor.task_id if anchor else "",
+            sender="orchestrator",
+            receiver="user",
+            action="budget.paused",
+            payload={"reason": reason, "approval_id": approval_id},
+            status="NEEDS_APPROVAL",
+        )
+        log.warning("mission %s paused: %s", mission.mission_id, reason)
+        await ws_manager.broadcast(
+            "approval",
+            f"Budget paused the mission: {reason}",
+            mission_id=mission.mission_id,
+            approval_id=approval_id,
+            status="NEEDS_APPROVAL",
+        )
+
     # -- approval --------------------------------------------------------
 
     def _approval_hook(self, mission: Mission, task: Task, agent_id: str):
-        async def hook(tool_name: str, arguments: dict[str, Any]) -> bool:
+        async def hook(tool_name: str, arguments: dict[str, Any]) -> str | None:
+            from app.tools.registry import registry as tool_registry
+
+            registered = tool_registry.get(tool_name)
+            # The row stores the policy level. The hash is computed from the
+            # arguments inside create_approval, and execution recomputes it.
+            level = registered.policy.value if registered is not None else "dangerous"
             approval_id = store.create_approval(
                 mission_id=mission.mission_id,
                 task_id=task.task_id,
                 agent_id=agent_id,
                 tool_name=tool_name,
                 tool_arguments=arguments,
-                risk="DANGEROUS",
+                risk=level,
             )
             store.update_task(task.task_id, status=TaskStatus.NEEDS_APPROVAL)
             store.update_mission(mission.mission_id, status=MissionStatus.NEEDS_APPROVAL)
@@ -351,6 +486,12 @@ class MissionScheduler:
                 mission_id=mission.mission_id, task_id=task.task_id,
                 approval_id=approval_id, tool=tool_name, arguments=arguments,
             )
+            try:
+                from app.channels import telegram as telegram_channel
+
+                await telegram_channel.notify_approval(approval_id)
+            except Exception:
+                log.debug("Telegram approval notify failed", exc_info=True)
 
             deadline = time.monotonic() + APPROVAL_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
@@ -365,12 +506,14 @@ class MissionScheduler:
                         f"{tool_name} {'approved' if approved else 'denied'}",
                         mission_id=mission.mission_id, approval_id=approval_id, approved=approved,
                     )
-                    return approved
+                    # The id is not permission to run. The executor consumes the
+                    # row only when the hash of the call still matches.
+                    return approval_id if approved else None
 
             store.decide_approval(approval_id, ApprovalDecision.DENIED, decided_by="timeout")
             store.update_task(task.task_id, status=TaskStatus.RUNNING)
             store.update_mission(mission.mission_id, status=MissionStatus.RUNNING)
-            return False
+            return None
 
         return hook
 

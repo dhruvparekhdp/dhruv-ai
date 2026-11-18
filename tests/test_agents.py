@@ -12,7 +12,8 @@ import pytest
 from app.agents.registry import AgentDefinition, AgentDefinitionError, AgentRegistry
 from app.agents.runner import AgentRunner
 from app.missions.models import Budget
-from app.tools.registry import Capability, Risk, check_permission, registry as tool_registry
+from app.tools.registry import Capability, Risk, check_permission
+from app.tools.registry import registry as tool_registry
 from tests.conftest import scripted_router, text_result, tool_result
 
 # asyncio_mode=auto in pytest.ini runs async tests without per-test markers.
@@ -22,7 +23,10 @@ from tests.conftest import scripted_router, text_result, tool_result
 
 
 def test_definitions_load_and_validate(agents) -> None:
-    assert set(agents.ids()) == {"assistant", "memory", "operator", "planner", "research"}
+    assert set(agents.ids()) == {
+        "assistant", "crypto_analyst", "memory", "nse_analyst", "operator",
+        "planner", "portfolio_analyst", "research", "risk_analyst", "trading_research",
+    }
     research = agents.get("research")
     assert "web.fetch" in research.tools
     assert Capability.READ in research.capabilities
@@ -135,7 +139,8 @@ async def test_dangerous_tool_parks_and_is_denied_without_a_hook(agents) -> None
 
 
 async def test_dangerous_tool_runs_once_approved(agents) -> None:
-    from app.memory.store import read as read_memory, write as write_memory
+    from app.memory.store import read as read_memory
+    from app.memory.store import write as write_memory
 
     write_memory("user", "city", "Pune")
 
@@ -145,11 +150,24 @@ async def test_dangerous_tool_runs_once_approved(agents) -> None:
     ])
     runner = AgentRunner(router)
 
-    async def approve(tool_name: str, arguments: dict) -> bool:
-        return True
+    from app.missions import store
+    from app.missions.models import ApprovalDecision
+
+    mission_id = "msn_approve"
+
+    async def approve(tool_name: str, arguments: dict) -> str:
+        approval_id = store.create_approval(
+            mission_id=mission_id, task_id="task_approve", agent_id="memory",
+            tool_name=tool_name, tool_arguments=arguments, risk="DANGEROUS",
+        )
+        store.decide_approval(approval_id, ApprovalDecision.APPROVED, decided_by="tester")
+        return approval_id
 
     result = await runner.run(
-        agents.get("memory"), objective="Forget my city.", approval_hook=approve
+        agents.get("memory"),
+        objective="Forget my city.",
+        mission_id=mission_id,
+        approval_hook=approve,
     )
 
     assert result.text == "Deleted."
@@ -157,7 +175,8 @@ async def test_dangerous_tool_runs_once_approved(agents) -> None:
 
 
 async def test_denied_approval_leaves_data_intact(agents) -> None:
-    from app.memory.store import read as read_memory, write as write_memory
+    from app.memory.store import read as read_memory
+    from app.memory.store import write as write_memory
 
     write_memory("user", "city", "Pune")
 
@@ -167,8 +186,8 @@ async def test_denied_approval_leaves_data_intact(agents) -> None:
     ])
     runner = AgentRunner(router)
 
-    async def deny(tool_name: str, arguments: dict) -> bool:
-        return False
+    async def deny(tool_name: str, arguments: dict) -> None:
+        return None
 
     await runner.run(agents.get("memory"), objective="Forget my city.", approval_hook=deny)
 
@@ -218,6 +237,7 @@ async def test_unknown_tool_name_does_not_crash_the_task(agents) -> None:
     result = await AgentRunner(router).run(agents.get("memory"), objective="Try a bad tool.")
     assert result.text == "recovered"
     assert "unknown tool" in result.tool_log[0]["output"]
+    assert "not registered" in result.tool_log[0]["output"]
 
 
 async def test_context_is_scoped_to_the_task(agents) -> None:
@@ -240,5 +260,6 @@ async def test_agent_is_never_offered_tools_it_cannot_use(agents) -> None:
     await AgentRunner(router).run(agents.get("assistant"), objective="hi")
 
     offered = {t["function"]["name"] for t in (engine.calls[0]["tools"] or [])}
-    assert offered == {"memory.search", "memory.read"}
+    assert offered == {"memory.search", "memory.read", "tasks.suggest"}
     assert "memory.forget" not in offered
+    assert "memory.write" not in offered

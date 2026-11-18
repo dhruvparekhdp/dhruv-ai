@@ -14,6 +14,8 @@ recommended replacement. Overridable via `GROQ_MODEL`; do not set it back.
 
 ## D-002 · Storage is dual-dialect (SQLite + Postgres)
 
+*The dual dialect stands. "Postgres in production" is superseded by D-027.*
+
 Postgres in production, SQLite for local development and tests — so tests need no database server and
 run offline. Every query goes through `app/core/db.py`, where `q()` rewrites `?` → `%s` and
 `ddl_types()` swaps the divergent type names.
@@ -37,8 +39,11 @@ replaced by a framework later without touching the backend.
 
 A single constant-time-compared `JARVIS_PASSCODE` on every `/api/v1/*` route and the WebSocket
 handshake. Small, and enough to keep a publicly reachable URL from being open to anyone who finds it.
+The passcode is exchanged for an expiring session token (D-026). The header still works, so the
+MCP server and existing curl snippets keep functioning, and it shares the login lockout.
 
-`/health` reports `auth_enabled`, so an unprotected instance is visible rather than silent.
+`/health` reports `auth_enabled`, so an unprotected instance is visible rather than silent. An
+unset passcode no longer means "open": the process refuses to start (D-026).
 
 ---
 
@@ -206,6 +211,8 @@ messages once a mission completes.
 
 ## D-018 · Debian 13 with XFCE, not headless
 
+*Superseded by D-026. The "never the only way in" half of the reasoning still holds.*
+
 Headless would save ~1.5 GB of RAM on a 16 GB machine — the wrong thing to optimise. The owner has
 not operated a Linux box without a GUI and would be unable to do basic file management.
 
@@ -354,3 +361,284 @@ lease that has not actually lapsed, and duplicate work.
 
 `chrony` on every node, installed by the provisioning playbook. Cheap insurance against a whole
 class of distributed-systems bug.
+
+---
+
+## D-026 · The host is headless; Cockpit is the way in
+
+Supersedes D-018. The host was installed with no desktop environment: the owner is comfortable over
+SSH, and a server's desktop is RAM and attack surface that nobody looks at.
+
+D-018 had two arguments, and only one was about GUI comfort. The other survives: you cannot use
+Jarvis to fix Jarvis, so a 2 a.m. crash needs a way in that does not depend on the thing that
+crashed. **Cockpit** (web admin on port 9090: files, terminal, logs, services) is that way in, at
+about 50 MB instead of a desktop's 1.5 GB. It is installed in host setup step one, before Jarvis.
+
+---
+
+## D-027 · SQLite on the host; Postgres stays supported, not default
+
+Supersedes "Postgres in production" in D-002. The Postgres default existed because Render's
+filesystem was ephemeral — a SQLite file would vanish on every deploy. The host is a laptop with a
+persistent disk and Jarvis has a single writer, which is SQLite's best case.
+
+The dual-dialect code and the Postgres test run stay. They cost little, they have caught four real
+bugs, and they keep the option open if a second writer ever appears.
+
+---
+
+## D-028 · Jarvis's job is control plane, not product host
+
+Jarvis watches and steers the owner's other systems; it does not run them. The crypto engine keeps
+its own risk machinery and host; the shop stays on Netlify and Supabase. Jarvis checks their health
+over HTTP, alerts on change, and can do bounded chores under approval.
+
+Why: a trading engine or a shop that depends on a laptop at home inherits that laptop's power cuts.
+The arrow points one way — Jarvis depends on them being observable, never the reverse. Shared ideas
+(the crypto engine's per-model LLM budgets) are ported as code, not called at runtime.
+
+---
+
+## D-029 · Jarvis gets its own Telegram bot, long-polled
+
+Telegram allows one `getUpdates` consumer per bot token; two programs polling the same token take
+each other's messages at random. The crypto engine's bot is outbound-only today, but sharing it
+would make "Jarvis didn't answer" a race. A second bot costs nothing.
+
+Long-polling dials out, so it keeps D-014 (nothing dials in) and works with or without Funnel. Only
+the owner's chat ID is answered — on Telegram there is no passcode header, so that check *is* the
+gate, and it lives in the channel, not in each command.
+
+---
+
+## D-030 · A native iOS app, as a client and a reporting device
+
+Revises the earlier "todos UI in the PWA only, native iOS parked" call. The PWA can't be reached by
+Siri, can't run from a Shortcuts automation, can't use Face ID, and can't read the phone's own
+state. Those are exactly the parts of *Reach* and *Attunement* (VISION.md) a phone is for.
+
+What it is, and what it isn't:
+
+- **A thin client.** Every rule — two active tracks, one next item, the approval gate, memory —
+  stays server-side, tested once. The app never re-implements one.
+- **A reporting device, not a node** (D-013). It can't hold a socket or execute; it reports in short
+  bursts to `/api/v1/devices/checkin`, a separate module from `app/nodes/`.
+- **Free Personal Team, no extensions.** Three free-signed apps fit on the phone and extensions
+  count, so Siri and Shortcuts go through App Intents in the app target.
+- **Shortcuts automations are the background mechanism.** A free-team app can't schedule itself;
+  automations trigger on arriving, leaving, charging, Focus — events the app could never observe —
+  and give location context without the app holding a location permission.
+- **Approve always asks for Face ID; deny never does.** Saying no must never be harder than yes.
+- **Telegram stays the push channel.** Remote push needs the paid program.
+
+New data sources arrive one permission at a time (the access ladder in `ios/README.md`), each with
+a stated reason, never as a bundle.
+## D-031 · External feeds share one adapter client
+
+Market data and any later HTTP integration go through `app/adapters/`, not a
+private `httpx` call inside a tool.
+
+The client is the boundary agents see. A timeout, a 5xx, or an open circuit
+comes back as `unavailable`. Raising would either crash the task or invite the
+model to invent the payload the feed did not return.
+
+Retries are GET-only and jittered. A retried POST can apply twice, and identical
+backoff makes every replica retry together. Each adapter has its own circuit so
+one dead feed does not block the others. `data_as_of` older than that adapter's
+threshold is stale even when the payload says it is fresh — feeds cache the flag.
+
+Credentials are an env-var name (or an injected secret source) read at call time.
+The value is placed on the request header and nowhere in the log line. httpx
+exception strings are not logged, because they can echo request headers.
+## D-032 · The process refuses to run open
+
+D-004 left an unset `JARVIS_PASSCODE` as "auth off", and the host unit bound `0.0.0.0`. Both are
+how a personal assistant ends up reachable with no gate: a missed env var, or a copied unit file.
+
+- **No passcode, no process.** Startup raises before the database is opened and before a socket
+  accepts `/health`. The only exception is `JARVIS_DEV_INSECURE=1` **and** a loopback bind, which
+  logs a banner that authentication is disabled.
+- **Loopback is the default.** `JARVIS_HOST` defaults to `127.0.0.1`, and `python -m app` binds
+  that. `uvicorn --host 0.0.0.0` is the address that is actually checked, and it is refused unless
+  `JARVIS_ALLOW_PUBLIC_BIND=1`. Tailscale Funnel proxies to localhost, so the host does not need
+  to listen on every interface.
+- **The passcode is hashed, then compared** with `hmac.compare_digest`, so a short guess cannot
+  return early on length. Failed attempts — login body or `X-Jarvis-Passcode` header — share one
+  counter. This is a single-user system; a per-IP bucket would let an attacker rotate around it.
+  After N failures (default 5) the door locks, backing off from 30 seconds up to 15 minutes. A
+  correct passcode does not skip the window. A session that was already issued keeps working.
+- **Sessions expire.** `POST /api/v1/auth/login` returns a bearer token (default 12 hours,
+  `JARVIS_SESSION_TTL_SECONDS`). `POST /api/v1/auth/logout` revokes it. The PWA stores the token,
+  not the passcode. The passcode header remains valid so existing clients do not break, and it is
+  the credential logout does not erase.
+
+Sessions and the lockout are in memory. A crash drops both. Sessions fail closed (log in again).
+Resetting the lockout requires restarting the process, which a remote attacker cannot do.
+
+The static shell (`/`, `/static/*`, the manifest, the service worker) stays unauthenticated so the
+lock screen can load. `/health` stays unauthenticated for uptime probes.
+## D-033 · The HTTP surface is an allowlist
+
+The PWA is same-origin (D-003), so the default deploy grants no cross-origin access. A second
+origin (the Ionic dev server, for example) is named in `JARVIS_CORS_ORIGINS`. `*` is parsed out
+and ignored: Starlette's CORS middleware, given a star plus credentials, reflects whatever
+`Origin` the browser sent and attaches `Access-Control-Allow-Credentials`, which is any website
+calling the API as the operator.
+
+The shell ships one script and one stylesheet. The content security policy is `default-src
+'self'` with `frame-ancestors 'none'`, and it does not allow `unsafe-inline` or `unsafe-eval`.
+The mission progress width is set through the CSSOM so the policy does not need an inline-style
+exception. `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and
+`X-Frame-Options: DENY` go out on every response, including the 500 the server-error middleware
+builds outside the header middleware.
+
+There is no upload route. Bodies that claim to be a file (`multipart/*`, images, audio, video,
+pdf, zip) are refused, and every body is capped (default 1 MiB) before it is read.
+
+Mission starts and model calls (`POST /command`, `POST /mood`) share one process-local window
+each. A per-address bucket would let one client rotate addresses around the limit, and this is a
+single-user system. The windows live in memory; a restart clears them, which only helps someone
+who can already restart the process. A rejected mission start is refused before a row is written.
+
+Outside `JARVIS_DEBUG`, a failed turn says "Engine failure." and an unhandled exception says
+"Internal server error." The exception text, traceback, and any connection string stay in the
+log. Debug mode includes them, because that is how a local failure gets diagnosed. A telemetry
+failure on `/health` reports `unavailable` rather than the exception string.
+## D-034 · Approvals bind to one exact action
+
+`DANGEROUS` still always parks (D-008). Calls that leave the machine (`external`:
+`web.fetch`, `web.search`) park as well, even though their older risk label is `SAFE`,
+because that label only meant "no local mutation".
+
+The gate is `execute_tool`, not the prompt. An approval stores who decided, when, the
+decision, the mission id, and a SHA-256 of the tool name plus canonical params. Execution
+recomputes the hash. A different argument, a second use, or an age past 15 minutes
+(`JARVIS_APPROVAL_TTL_SECONDS`) is a denial, and the handler does not run. The row is in
+the mission database, so a restart still has it.
+
+The full table is `docs/architecture/permission-matrix.md`. Unregistered names are denied.
+There is no default allow.
+## D-035 · Personal tasks are not mission steps, and agents only suggest
+
+`work_tasks` is a third list. Mission `tasks` are steps the scheduler runs.
+Todos are the two-track focus tool. Personal tasks are the user's own items:
+a title, notes, an IST due time, a priority, tags, and an optional link to a
+mission, a brand, or a content item.
+
+A due value with no timezone is Asia/Kolkata. The machine clock is not
+consulted, because the host runs in UTC and an evening reminder would land
+on the wrong evening.
+
+Recurrence is daily, weekly, or monthly. Completing an occurrence files the
+next one in the same series. Monthly recurrence clamps the day, so 31 January
+is followed by 28 February, and that occurrence is followed by 28 March.
+
+An agent tool can only insert `suggested`. The store refuses any other status
+from an agent. The user accepts a suggestion before it is open, and only an
+open task can be completed. The table is not named `tasks` because that name
+is the mission graph.
+
+---
+
+## D-036 · trading-v1 is a read-only contract, not an order API
+
+`crypto-signal-engine` and `nse-trade` are other systems. This repo holds the
+shared envelope (`app/contracts/trading_v1/`) and two GET clients
+(`app/adapters/trading/`). Jarvis does not mount `/integration/v1`.
+
+`mode` is `paper`, `shadow`, or `research`. There is no live value, so a feed
+that claims live fails validation instead of being treated as a quieter paper
+read. Prices and quantities are decimal strings so a JSON number cannot round
+a fill. Money carries an explicit currency.
+
+`is_stale: true` and an old `data_as_of` both force a stale read. The JAR-011
+client looks at a field named `stale`; the trading client keeps that age check
+and also honors `is_stale`, and it returns the full envelope so `mode`,
+`errors`, and `source_engine` stay visible.
+
+The engine compares `Authorization: Bearer` with `INTEGRATION_API_TOKEN` using
+`hmac.compare_digest`, and an empty expected token fails closed. The clients
+read `CRYPTO_INTEGRATION_API_TOKEN` and `NSE_INTEGRATION_API_TOKEN` so the two
+feeds do not share one secret by accident.
+
+---
+
+## D-037 · Analysts read the trading adapters and cannot order
+
+`crypto_analyst`, `nse_analyst`, `portfolio_analyst`, `risk_analyst`, and
+`trading_research` are YAML definitions on the same runner as every other
+agent. Their only tools are `trading.crypto.read` and `trading.nse.read`.
+Capability is READ and risk is SAFE, so a read is not parked as if it were a
+write.
+
+Order-like tool names are denied in `check_permission` before the allowlist is
+consulted. An approval prompt is the wrong control for a place, cancel, or
+transfer: the call should be impossible.
+
+The runner checks the summary against the tool headers. The source engine and
+`data_as_of` have to match the read. Stale or unavailable input has to be the
+first line. A symbol that was not in a positions read fails the check, the
+draft is sent back, and after the retries the task fails with the draft
+discarded. A signal is not a holding.
+
+---
+
+## D-038 · Outcome stats are computed in Python
+
+Win rate, expectancy, drawdown, and streaks are arithmetic on closed paper and
+shadow trades. A model that is handed the raw fills will round them and then
+sound sure. `app/analytics/outcomes.py` does the arithmetic with `Decimal`.
+The outcomes tools return that sheet, and the runner rejects a narration that
+omits the sample size, the period, or the under-30 warning, or that cites a
+figure the sheet does not contain.
+
+Books are split by mode and currency. Research trades are not outcomes. An
+open trade is not a result. Profit factor is undefined when nothing was lost,
+rather than a made-up infinity. Max drawdown is the peak-to-trough drop of
+cumulative pnl from a zero start, in pnl currency. The percent of that peak
+is a separate field used by the drawdown alert (D-039).
+
+---
+
+## D-039 · Trading alerts stay in the app, on IST
+
+Signal strength, engine age, drawdown, and a risk-limit breach are evaluated
+in Python and written to an inbox table. There is no mail, webhook, or push
+path. A condition at the threshold does not fire: strength and drawdown use
+strictly greater-than, and a feed is stale only when `data_as_of` is older
+than N minutes. A missing timestamp is not treated as stale.
+
+Quiet hours are the Asia/Kolkata wall clock, `[start, end)`, wrapping
+midnight. A row suppressed for quiet hours is not a delivery, so it does not
+start the dedupe window. The inbox lists delivered rows only.
+
+Drawdown percent is `(peak - equity) / peak` on the same walk as the currency
+drawdown. When the book never trades above zero the percent is absent and the
+rule does not fire.
+
+The daily briefing is a mission whose five sections (market, signals,
+positions, performance, alerts) are filled before the mission is stored, each
+with its own as-of. The tasks are already SUCCESS. Leaving them READY would
+hand the text to the planner, which can drop an as-of or name a symbol the
+positions read did not return. Performance figures come from the outcome
+arithmetic, not from the engine's performance object.
+
+---
+
+## D-040 · OCR is a read, and a missing service is not a document
+
+`extract_document` posts one local file to `POST /v1/extract` through the
+shared adapter client. The service returns an envelope whose `data.fields`
+each carry a name, a string value, a confidence from 0 to 1, a page, and a
+four-number bbox. The tool text gives the agent the value and the confidence.
+A field whose confidence is strictly below `OCR_REVIEW_CONFIDENCE` (default
+0.8) is marked for review. 0.8 itself is not.
+
+The call is not retried. Uploading the file twice would be a second
+extraction, and the client already refuses to retry anything except GET.
+With `OCR_BASE_URL` unset the adapter is a stub: no socket, no fields. A
+timeout, a 5xx, an open circuit, or a body that is not the envelope is
+reported as unavailable or invalid, and the field list stays empty.
+
+The token is `OCR_API_TOKEN`, read at call time. The local path is not sent;
+only the file's base name is. The tool is capability READ and risk SAFE.

@@ -1,0 +1,200 @@
+{
+  "$defs": {
+    "ApiError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ApiError",
+      "type": "object"
+    },
+    "FeedStatus": {
+      "enum": [
+        "ok",
+        "degraded",
+        "unavailable"
+      ],
+      "title": "FeedStatus",
+      "type": "string"
+    },
+    "MarketHighlight": {
+      "additionalProperties": false,
+      "properties": {
+        "change_pct": {
+          "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "title": "Change Pct",
+          "type": "string"
+        },
+        "last": {
+          "$ref": "#/$defs/Money"
+        },
+        "symbol": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "last",
+        "change_pct"
+      ],
+      "title": "MarketHighlight",
+      "type": "object"
+    },
+    "MarketOverview": {
+      "additionalProperties": false,
+      "description": "Typed overview. Free text lives in `details` so floats cannot hide there.",
+      "properties": {
+        "details": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Details",
+          "type": "object"
+        },
+        "highlights": {
+          "items": {
+            "$ref": "#/$defs/MarketHighlight"
+          },
+          "title": "Highlights",
+          "type": "array"
+        },
+        "instruments_tracked": {
+          "minimum": 0,
+          "title": "Instruments Tracked",
+          "type": "integer"
+        },
+        "venue": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Venue",
+          "type": "string"
+        }
+      },
+      "required": [
+        "venue",
+        "instruments_tracked",
+        "highlights"
+      ],
+      "title": "MarketOverview",
+      "type": "object"
+    },
+    "Mode": {
+      "description": "Execution stance the engine is reporting. Live is intentionally absent.",
+      "enum": [
+        "paper",
+        "shadow",
+        "research"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "Money": {
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+          "title": "Amount",
+          "type": "string"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3,10}$",
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "title": "Money",
+      "type": "object"
+    },
+    "SourceEngine": {
+      "enum": [
+        "crypto-signal-engine",
+        "nse-trade"
+      ],
+      "title": "SourceEngine",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "correlation_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/MarketOverview"
+    },
+    "data_as_of": {
+      "format": "date-time",
+      "title": "Data As Of",
+      "type": "string"
+    },
+    "errors": {
+      "items": {
+        "$ref": "#/$defs/ApiError"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "is_stale": {
+      "title": "Is Stale",
+      "type": "boolean"
+    },
+    "mode": {
+      "$ref": "#/$defs/Mode"
+    },
+    "schema_version": {
+      "pattern": "^1\\.0$",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_engine": {
+      "$ref": "#/$defs/SourceEngine"
+    },
+    "status": {
+      "$ref": "#/$defs/FeedStatus"
+    }
+  },
+  "required": [
+    "source_engine",
+    "schema_version",
+    "generated_at",
+    "data_as_of",
+    "status",
+    "is_stale",
+    "mode",
+    "correlation_id",
+    "data",
+    "errors"
+  ],
+  "title": "Envelope[MarketOverview]",
+  "type": "object"
+}

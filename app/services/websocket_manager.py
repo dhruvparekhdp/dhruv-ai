@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import WebSocket
@@ -50,7 +50,7 @@ class ConnectionManager:
             {
                 "event": event,
                 "message": message,
-                "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
                 **fields,
             }
         )

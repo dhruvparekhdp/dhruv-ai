@@ -1,4 +1,9 @@
-# Host setup — Debian 13 + XFCE
+# Host setup — Debian 13
+
+> **The host is headless now (D-026).** Skip the XFCE choices below: in Software selection, check
+> only *SSH server* and *standard system utilities*. Install Cockpit (step 6) first, before Jarvis —
+> it is the way in when Jarvis is the thing that's broken. Skip `postgresql` and `DATABASE_URL`;
+> the host runs SQLite (D-027). Ignore the XFCE Power Manager line in step 4.
 
 Turning the dedicated laptop (i5-1235U, 16 GB, 477 GB) into the Jarvis host.
 
@@ -214,7 +219,10 @@ Type=simple
 User=$USER
 WorkingDirectory=$HOME/jarvis
 EnvironmentFile=$HOME/jarvis/.env
-ExecStart=$HOME/jarvis/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Binds 127.0.0.1:8000 unless .env says otherwise. Funnel reaches that.
+# Listening on every interface also needs JARVIS_ALLOW_PUBLIC_BIND=1 and
+# JARVIS_HOST=0.0.0.0 in the env file. An unset JARVIS_PASSCODE refuses to start.
+ExecStart=$HOME/jarvis/.venv/bin/python -m app
 Restart=always
 RestartSec=5
 
@@ -260,11 +268,13 @@ All of this is also clickable in Cockpit under **Services** and **Logs**.
 
 ---
 
-## Coming in Phase 3
+## Still open (Horizon B)
 
-An **Ansible playbook** that performs steps 3–8 in one command, so a new machine — the gaming laptop,
-a mini PC, a Pi — becomes a Jarvis node without following this document again. And Jarvis's own
-**Files / System / Terminal panels**, so the terminal becomes optional rather than occasional.
+Phase 3 **core** (node protocol + PC agent) is already in the repo. Still to land:
 
-XFCE and Cockpit stay regardless: you cannot use Jarvis to fix Jarvis, so there must always be a way
-in that does not depend on it.
+- An **Ansible playbook** that performs steps 3–8 in one command, so a new machine becomes a Jarvis
+  node without following this document again
+- Jarvis's own **Files / System / Terminal / Fleet panels**, so the terminal becomes optional
+
+See [`RESTART-PLAN.md`](RESTART-PLAN.md). XFCE and Cockpit stay regardless: you cannot use Jarvis to
+fix Jarvis, so there must always be a way in that does not depend on it.

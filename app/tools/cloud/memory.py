@@ -13,7 +13,8 @@ from typing import Any
 
 from app.memory import search as memory_search
 from app.memory import store
-from app.memory.store import MemoryError_, VALID_SCOPES
+from app.memory.store import VALID_SCOPES, MemoryError_
+from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, ToolError, tool
 
 # Re-exported so callers keep a single import for schema setup.
@@ -46,6 +47,7 @@ def _scope_key(scope: str, mission_id: str) -> str:
     },
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.READ,
 )
 async def memory_search_tool(
     query: str, scope: str = "", _mission_id: str = "", **_: Any
@@ -88,6 +90,7 @@ async def memory_search_tool(
     },
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.READ,
 )
 async def memory_read_tool(scope: str, key: str = "", _mission_id: str = "", **_: Any) -> str:
     try:
@@ -120,15 +123,20 @@ async def memory_read_tool(scope: str, key: str = "", _mission_id: str = "", **_
     },
     capability=Capability.WRITE,
     risk=Risk.SENSITIVE,
+    policy=PolicyLevel.INTERNAL_WRITE,
 )
 async def memory_write_tool(
     scope: str, key: str, value: str, _mission_id: str = "", _agent_id: str = "", **_: Any
 ) -> str:
+    # source is "agent". source_ref is the mission, which is the id the ticket
+    # asks for. The agent id stays out of that field. `_agent_id` is accepted
+    # because the runner injects it into every tool call.
     try:
         store.write(
             scope, key, value,
             scope_key=_scope_key(scope, _mission_id),
-            source=f"agent:{_agent_id}" if _agent_id else "agent",
+            source="agent",
+            source_ref=_mission_id,
         )
     except MemoryError_ as exc:
         raise ToolError(str(exc)) from exc
@@ -149,6 +157,7 @@ async def memory_write_tool(
     capability=Capability.WRITE,
     # Irreversible, so it always parks for a human decision regardless of grants.
     risk=Risk.DANGEROUS,
+    policy=PolicyLevel.DANGEROUS,
 )
 async def memory_forget_tool(scope: str, key: str, _mission_id: str = "", **_: Any) -> str:
     try:

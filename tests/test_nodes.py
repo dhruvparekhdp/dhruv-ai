@@ -14,7 +14,6 @@ import pytest
 from app.nodes import store
 from app.nodes.gateway import NodeGateway, NoNodeAvailable
 from app.nodes.models import NodeCapability, NodeStatus, parse_capabilities
-from tests.conftest import TEST_PASSCODE
 
 
 def _enrol(name="worker", caps=(NodeCapability.EXECUTE,), **kw):

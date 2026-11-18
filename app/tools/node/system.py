@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.nodes.models import NodeCapability
 from app.tools.node._base import not_local
+from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, tool
 
 tool(
@@ -14,6 +15,7 @@ tool(
     parameters={"type": "object", "properties": {}, "required": []},
     capability=Capability.READ,
     risk=Risk.SAFE,
+    policy=PolicyLevel.READ,
     requires_node=True,
     node_capability=NodeCapability.EXECUTE,
 )(not_local)
@@ -35,6 +37,7 @@ tool(
     capability=Capability.EXECUTE,
     # Arbitrary execution on real hardware always needs a human decision.
     risk=Risk.DANGEROUS,
+    policy=PolicyLevel.DANGEROUS,
     requires_node=True,
     node_capability=NodeCapability.EXECUTE,
 )(not_local)

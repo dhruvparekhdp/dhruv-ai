@@ -1,0 +1,25 @@
+# Advisories already reported when OPS-002 added `make security`.
+# Dependency upgrades are out of scope for that ticket, so these ids are
+# ignored. An advisory that is not listed here fails the check.
+# Ids are public vulnerability identifiers, not secrets.
+#
+# mcp==1.2.0 -- direct pin in requirements-mcp.txt
+PYSEC-2026-1616
+PYSEC-2026-1617
+PYSEC-2026-1618
+PYSEC-2026-3482
+PYSEC-2026-3483
+
+# Pillow is pinned to 13.0.0 in requirements.txt; prior advisories are fixed.
+
+# pytest==8.3.4 -- direct pin in requirements-dev.txt
+PYSEC-2026-1845
+
+# starlette==0.41.3 -- transitive, pulled by fastapi in requirements.txt
+PYSEC-2026-161
+PYSEC-2026-1941
+PYSEC-2026-1942
+PYSEC-2026-2280
+PYSEC-2026-2281
+PYSEC-2026-248
+PYSEC-2026-249

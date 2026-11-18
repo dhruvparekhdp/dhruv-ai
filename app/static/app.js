@@ -3,14 +3,19 @@
  * No framework, no build step — this ships as-is and installs to the iPhone
  * home screen. Phase 2 replaces it with Ionic + Angular against the same API.
  *
- * The passcode lives in localStorage: sent as a header on REST calls, and as a
- * query parameter on the WebSocket (browsers can't set headers on a WS
- * handshake).
+ * The passcode is exchanged once for a session token, which lives in
+ * localStorage: sent as a bearer token on REST calls, and as a query
+ * parameter on the WebSocket (browsers can't set headers on a WS handshake).
+ * The passcode itself is not stored.
  */
 
 (() => {
   "use strict";
 
+  const TOKEN_KEY = "jarvis.token";
+  const TOKEN_EXPIRES_KEY = "jarvis.token_expires";
+  // Older builds stored the passcode itself. It is exchanged for a token on
+  // the next load and then removed.
   const PASSCODE_KEY = "jarvis.passcode";
   const SESSION_KEY = "jarvis.session";
 
@@ -22,20 +27,26 @@
     moodTrend: $("mood-trend"), trendBars: $("trend-bars"), trendAvg: $("trend-avg"),
     messages: $("messages"), chatForm: $("chat-form"), chatInput: $("chat-input"),
     logsToggle: $("logs-toggle"), logsPanel: $("logs-panel"), logs: $("logs"),
+    logoutBtn: $("logout-btn"),
     stats: $("stats"), exportBtn: $("export-btn"),
     engineBadge: $("engine-badge"), storageBadge: $("storage-badge"),
     missionForm: $("mission-form"), missionInput: $("mission-input"), missionList: $("mission-list"),
+    taskForm: $("task-form"), taskTitle: $("task-title"), taskDue: $("task-due"), taskList: $("task-list"),
+    alertList: $("alert-list"),
     approvals: $("approvals"), approvalList: $("approval-list"),
     memoryForm: $("memory-search-form"), memoryQuery: $("memory-query"),
     memoryScopes: $("memory-scopes"), memoryMethod: $("memory-method"),
     memoryList: $("memory-list"), memoryAddForm: $("memory-add-form"),
     memoryNewKey: $("memory-new-key"), memoryNewValue: $("memory-new-value"),
+    todoVerdict: $("todo-verdict"), todoNext: $("todo-next"), todoAddForm: $("todo-add-form"),
+    todoTitle: $("todo-title"), todoList: $("todo-list"),
   };
 
-  let passcode = localStorage.getItem(PASSCODE_KEY) || "";
+  let token = localStorage.getItem(TOKEN_KEY) || "";
   let sessionId = null;
   let selectedMood = null;
   let socket = null;
+  let keepSocket = false;
 
   // ---------------------------------------------------------------- utils
 
@@ -43,12 +54,16 @@
     String(s).replace(/[&<>"']/g, (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+  function authHeaders() {
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
   async function api(path, { method = "GET", body } = {}) {
     const res = await fetch(path, {
       method,
       headers: {
         "Content-Type": "application/json",
-        ...(passcode ? { "X-Jarvis-Passcode": passcode } : {}),
+        ...authHeaders(),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -56,6 +71,11 @@
     if (res.status === 401) {
       const err = new Error("Unauthorized");
       err.unauthorized = true;
+      throw err;
+    }
+    if (res.status === 429) {
+      const err = new Error("Too many attempts. Try again in a little while.");
+      err.locked = true;
       throw err;
     }
     if (!res.ok) {
@@ -79,23 +99,66 @@
     el.lockInput.focus();
   }
 
+  function clearToken() {
+    token = "";
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXPIRES_KEY);
+    localStorage.removeItem(PASSCODE_KEY);
+    stopSocket();
+  }
+
+  async function login(candidate) {
+    const res = await fetch("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passcode: candidate }),
+    });
+    if (res.status === 429) {
+      const err = new Error("Too many attempts. Try again in a little while.");
+      err.locked = true;
+      throw err;
+    }
+    if (res.status === 401) {
+      const err = new Error("Unauthorized");
+      err.unauthorized = true;
+      throw err;
+    }
+    if (!res.ok) throw new Error(`Couldn't reach Jarvis (${res.status})`);
+    const data = await res.json();
+    token = data.token || "";
+    localStorage.setItem(TOKEN_KEY, token);
+    if (data.expires_at) localStorage.setItem(TOKEN_EXPIRES_KEY, data.expires_at);
+    localStorage.removeItem(PASSCODE_KEY);
+    return data;
+  }
+
   el.lockForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const candidate = el.lockInput.value.trim();
     if (!candidate) return;
-    passcode = candidate;
     el.lockError.textContent = "";
     try {
-      await api("/api/v1/greeting");
-      localStorage.setItem(PASSCODE_KEY, passcode);
+      await login(candidate);
       el.lock.classList.add("hidden");
       el.app.classList.remove("hidden");
       await boot();
     } catch (err) {
-      passcode = "";
-      localStorage.removeItem(PASSCODE_KEY);
-      showLock(err.unauthorized ? "Wrong passcode." : `Couldn't reach Jarvis: ${err.message}`);
+      clearToken();
+      const message = err.locked
+        ? err.message
+        : err.unauthorized
+          ? "Wrong passcode."
+          : `Couldn't reach Jarvis: ${err.message}`;
+      showLock(message);
     }
+  });
+
+  el.logoutBtn.addEventListener("click", async () => {
+    try {
+      await api("/api/v1/auth/logout", { method: "POST" });
+    } catch (_) { /* drop the local token either way */ }
+    clearToken();
+    showLock();
   });
 
   // ------------------------------------------------------------- messages
@@ -273,7 +336,114 @@
       pushLog("error", `Could not load missions: ${err.message}`);
     }
     refreshApprovals();
+    refreshTasks();
+    refreshAlerts();
     return anyActive;
+  }
+
+  el.taskForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = el.taskTitle.value.trim();
+    if (!title) return;
+    // datetime-local has no zone. The field is labelled IST, and a zone-less
+    // value is read as IST by the API. Sending it with a Z would make it UTC.
+    const due = el.taskDue.value ? el.taskDue.value : null;
+    try {
+      await api("/api/v1/tasks", { method: "POST", body: { title, due_at: due } });
+      el.taskTitle.value = "";
+      el.taskDue.value = "";
+      refreshTasks();
+    } catch (err) {
+      pushLog("error", `Could not add task: ${err.message}`);
+    }
+  });
+
+  async function refreshTasks() {
+    try {
+      const list = await api("/api/v1/tasks");
+      el.taskList.innerHTML = "";
+      if (!list.tasks.length) {
+        el.taskList.textContent = "No open tasks.";
+        return;
+      }
+      for (const task of list.tasks) {
+        el.taskList.appendChild(renderTask(task));
+      }
+    } catch (err) {
+      pushLog("error", `Could not load tasks: ${err.message}`);
+    }
+  }
+
+  function renderTask(task) {
+    const item = document.createElement("article");
+    item.className = "task-item";
+    if (task.status === "suggested") {
+      const flag = document.createElement("span");
+      flag.className = "task-suggested";
+      flag.textContent = "Suggested";
+      item.appendChild(flag);
+    }
+    const title = document.createElement("strong");
+    title.textContent = task.title;
+    item.appendChild(title);
+    const meta = document.createElement("p");
+    const due = task.due_at_ist ? `Due ${task.due_at_ist}` : "No due time";
+    const tags = (task.tags || []).join(", ");
+    meta.textContent = tags ? `${due} · ${tags}` : due;
+    item.appendChild(meta);
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+    if (task.status === "suggested") {
+      actions.appendChild(taskButton("Accept", () => postTask(task.task_id, "accept")));
+    } else if (task.status === "open") {
+      actions.appendChild(taskButton("Complete", () => postTask(task.task_id, "complete")));
+    }
+    item.appendChild(actions);
+    return item;
+  }
+
+  function taskButton(label, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "primary";
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  async function postTask(taskId, action) {
+    try {
+      await api(`/api/v1/tasks/${encodeURIComponent(taskId)}/${action}`, { method: "POST" });
+      refreshTasks();
+    } catch (err) {
+      pushLog("error", `Could not ${action} task: ${err.message}`);
+    }
+  }
+
+  async function refreshAlerts() {
+    try {
+      const list = await api("/api/v1/alerts");
+      el.alertList.innerHTML = "";
+      if (!list.alerts.length) {
+        el.alertList.textContent = "No alerts.";
+        return;
+      }
+      for (const alert of list.alerts) {
+        const item = document.createElement("article");
+        item.className = "alert-item";
+        const sev = document.createElement("span");
+        sev.className = `sev sev-${alert.severity || "info"}`;
+        sev.textContent = alert.severity || "info";
+        const title = document.createElement("strong");
+        title.textContent = alert.title || "";
+        const body = document.createElement("p");
+        body.textContent = alert.body || "";
+        item.append(sev, title, body);
+        el.alertList.appendChild(item);
+      }
+    } catch (err) {
+      pushLog("error", `Could not load alerts: ${err.message}`);
+    }
   }
 
   function renderMission(mission) {
@@ -292,7 +462,12 @@
 
     const track = document.createElement("div");
     track.className = "progress-track";
-    track.innerHTML = `<div class="progress-fill ${status}" style="width:${percent}%"></div>`;
+    // Width goes through the CSSOM. An HTML style attribute would need
+    // style-src 'unsafe-inline', which the page policy does not allow.
+    const fill = document.createElement("div");
+    fill.className = `progress-fill ${status}`;
+    fill.style.width = `${Number(percent) || 0}%`;
+    track.appendChild(fill);
     node.appendChild(track);
 
     if (mission.tasks && mission.tasks.length) {
@@ -363,6 +538,59 @@
       el.approvals.classList.remove("hidden");
     } catch (_) { /* approvals are best-effort */ }
   }
+
+  // --------------------------------------------------------------- todos
+  async function loadTodos() {
+    try {
+      const [summary, nextData, listData] = await Promise.all([
+        api("/api/v1/todos/summary"),
+        api("/api/v1/todos/next"),
+        api("/api/v1/todos?active_only=true"),
+      ]);
+      el.todoVerdict.textContent = summary.verdict || "";
+      if (nextData.todo) {
+        const t = nextData.todo;
+        el.todoNext.classList.remove("hidden");
+        el.todoNext.innerHTML =
+          `<strong>${escapeHtml(t.title)}</strong>` +
+          `<span class="hint"> · ${escapeHtml(t.track)} · ${escapeHtml(t.status)}</span>`;
+      } else {
+        el.todoNext.classList.add("hidden");
+      }
+      el.todoList.innerHTML = "";
+      (listData.todos || []).slice(0, 20).forEach((todo) => {
+        const row = document.createElement("div");
+        row.className = "todo-row";
+        row.innerHTML =
+          `<span>${escapeHtml(todo.title)}</span>` +
+          `<span class="hint">${escapeHtml(todo.track)}</span>` +
+          `<button type="button" class="ghost" data-done="${escapeHtml(todo.todo_id)}">Done</button>`;
+        row.querySelector("button")?.addEventListener("click", async () => {
+          await api(`/api/v1/todos/${encodeURIComponent(todo.todo_id)}`, {
+            method: "PATCH",
+            body: { status: "done" },
+          });
+          loadTodos();
+        });
+        el.todoList.appendChild(row);
+      });
+    } catch (err) {
+      pushLog("error", `Todos load failed: ${err.message}`);
+    }
+  }
+
+  el.todoAddForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const title = el.todoTitle.value.trim();
+    if (!title) return;
+    try {
+      await api("/api/v1/todos", { method: "POST", body: { title, track: "jarvis" } });
+      el.todoTitle.value = "";
+      loadTodos();
+    } catch (err) {
+      pushLog("error", err.message);
+    }
+  });
 
   // --------------------------------------------------------------- memory
 
@@ -447,6 +675,9 @@
     const learned = (entry.created_at || "").slice(0, 10);
     const source = entry.source || "unknown";
     let provenance = `learned ${learned} · from ${source}`;
+    if (entry.source_ref) provenance += ` · ${entry.source_ref}`;
+    if (entry.sensitivity === "private") provenance += " · private";
+    if (entry.supersedes) provenance += " · corrected";
     if (entry.similarity !== undefined) provenance += ` · ${Math.round(entry.similarity * 100)}% match`;
     meta.innerHTML = `<span>${escapeHtml(provenance)}</span>`;
 
@@ -535,12 +766,23 @@
     el.logs.scrollTop = el.logs.scrollHeight;
   }
 
-  function connectSocket() {
-    const scheme = location.protocol === "https:" ? "wss" : "ws";
-    const url = `${scheme}://${location.host}/ws/logs?passcode=${encodeURIComponent(passcode)}`;
+  function stopSocket() {
+    keepSocket = false;
+    if (!socket) return;
+    const current = socket;
+    socket = null;
+    current.close();
+  }
 
-    socket = new WebSocket(url);
-    socket.addEventListener("message", (evt) => {
+  function connectSocket() {
+    if (!keepSocket) return;
+    const scheme = location.protocol === "https:" ? "wss" : "ws";
+    const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+    const url = `${scheme}://${location.host}/ws/logs${qs}`;
+
+    const current = new WebSocket(url);
+    socket = current;
+    current.addEventListener("message", (evt) => {
       try {
         const data = JSON.parse(evt.data);
         pushLog(data.event || "system", data.message || "");
@@ -551,11 +793,12 @@
         pushLog("system", evt.data);
       }
     });
-    socket.addEventListener("close", () => {
+    current.addEventListener("close", () => {
+      if (!keepSocket) return;
       pushLog("system", "Log stream disconnected — retrying in 5s.");
       setTimeout(connectSocket, 5000);
     });
-    socket.addEventListener("error", () => socket.close());
+    current.addEventListener("error", () => current.close());
   }
 
   el.logsToggle.addEventListener("click", () => {
@@ -564,10 +807,10 @@
   });
 
   el.exportBtn.addEventListener("click", async () => {
-    // fetch (not a plain link) so the passcode header travels with the request.
+    // fetch (not a plain link) so the session token travels with the request.
     el.exportBtn.disabled = true;
     try {
-      const res = await fetch("/api/v1/dataset/export", { headers: { "X-Jarvis-Passcode": passcode } });
+      const res = await fetch("/api/v1/dataset/export", { headers: authHeaders() });
       if (!res.ok) throw new Error(`Export failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -649,28 +892,50 @@
       }
 
       el.subtitle.textContent = "Jarvis is listening.";
+      keepSocket = true;
       connectSocket();
       loadTrend();
       refreshStats();
       refreshMissions();
       renderScopeChips();
       loadMemory();
+      loadTodos();
     } catch (err) {
-      if (err.unauthorized) { showLock("Session expired — enter your passcode."); return; }
+      if (err.unauthorized) {
+        clearToken();
+        showLock("Session expired — enter your passcode.");
+        return;
+      }
       el.subtitle.textContent = `Couldn't connect: ${err.message}`;
     }
   }
 
   async function start() {
-    // Probe auth: a passcode-less server lets anyone through, in which case
-    // the lock screen would be pointless friction.
+    // A build that stored the passcode exchanges it once, then forgets it.
+    const legacy = localStorage.getItem(PASSCODE_KEY);
+    if (!token && legacy) {
+      try {
+        await login(legacy);
+      } catch (_) {
+        localStorage.removeItem(PASSCODE_KEY);
+      }
+    }
+    // Probe auth: the loopback dev exception lets anyone through, in which
+    // case the lock screen would be pointless friction.
     try {
       await api("/api/v1/greeting");
       el.app.classList.remove("hidden");
       await boot();
     } catch (err) {
-      if (err.unauthorized) showLock();
-      else { el.app.classList.remove("hidden"); el.subtitle.textContent = `Couldn't connect: ${err.message}`; }
+      if (err.unauthorized) {
+        clearToken();
+        showLock();
+      } else if (err.locked) {
+        showLock(err.message);
+      } else {
+        el.app.classList.remove("hidden");
+        el.subtitle.textContent = `Couldn't connect: ${err.message}`;
+      }
     }
   }
 

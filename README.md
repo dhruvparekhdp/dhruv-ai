@@ -11,7 +11,10 @@ Runs on your own hardware, and works before you have any API key at all.
 | [`CLAUDE.md`](CLAUDE.md) | Project context and the invariants that must not be broken |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the pieces fit and why the seams fall where they do |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why each choice was made — **read before changing architecture** |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | What's built, what's next |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | What's built, what's next (long list) |
+| [`docs/PLAN.md`](docs/PLAN.md) | **Current build order** — what to ship next |
+| [`docs/VISION.md`](docs/VISION.md) | Long-term direction: what makes an assistant feel like someone |
+| [`docs/RESTART-PLAN.md`](docs/RESTART-PLAN.md) | Post-hold restart: research insights, Horizon A–C, personal LLM path |
 | [`docs/SETUP-HOST.md`](docs/SETUP-HOST.md) | Setting up the host laptop, step by step |
 | [`docs/SETUP-NODE.md`](docs/SETUP-NODE.md) | Joining another machine to the fleet |
 | [`docs/TODOS.md`](docs/TODOS.md) | The todo module, and connecting it to Claude over MCP |
@@ -28,8 +31,8 @@ Runs on your own hardware, and works before you have any API key at all.
   generic runner. Adding an agent is adding a file, not writing code.
 - **Permissions at the tool boundary** — every tool declares a capability and a risk level. An agent
   is never even shown a tool it cannot call.
-- **Human approval** — `DANGEROUS` tools park and wait for a decision in the PWA. Nothing executes
-  meanwhile.
+- **Human approval** — `DANGEROUS` tools, and anything that leaves the machine, park for a
+  decision. The approval matches that exact call, expires, and works once.
 - **Budgets and loop guards** — per-mission caps on tasks, depth, tokens, time and tool calls.
   Exhaustion fails the mission with a reason instead of burning your API quota.
 - **Crash recovery** — all state is written to the database at every transition. On boot, tasks
@@ -58,8 +61,9 @@ Runs on your own hardware, and works before you have any API key at all.
 - **`next` returns one item**, never a list, and prefers work already started over starting
   something new. Finishing beats starting.
 - **MCP server** — Claude gets `todo_next`, `track_summary`, add, list, update and track control.
-- **Telegram reminders**, swept on a timer; unconfigured means nothing is sent *and* nothing is
-  marked as reminded.
+- **Telegram** — inbound commands and chat (owner-only); outbound todo reminders (sweep still manual).
+- **Device check-ins** — `/api/v1/devices/checkin` from the native iOS app and Shortcuts.
+- **iOS client** — SwiftUI app in `ios/` (Siri, Shortcuts, approvals UI; build not CI-verified yet).
 
 **Assistant**
 - **Chat** and **mood check-ins** with a 14-day trend strip.
@@ -103,11 +107,11 @@ Open http://127.0.0.1:8000 and enter `dev`.
 No API key needed — Jarvis falls back to a local engine and tells you it's doing so.
 
 ```bash
-pytest -q          # 150 tests, no network, no tokens spent
+pytest -q          # 217 tests, no network, no tokens spent
 ```
 
-The same suite runs against either backend. The host runs Postgres while local development runs on
-SQLite, so both are tested:
+The same suite runs against either backend. The host runs SQLite (D-027); Postgres stays supported
+and tested:
 
 ```bash
 pytest -q                                              # SQLite (default)
@@ -125,8 +129,8 @@ stable public HTTPS hostname with a valid certificate, no domain purchase.
 iPhone / any browser
    │  HTTPS · https://<machine>.<tailnet>.ts.net
    ▼
-Host laptop — Debian 13 + XFCE · i5-1235U · 16 GB
-   Jarvis orchestrator + PC node + local Postgres + (later) Ollama
+Host laptop — Debian 13, headless · i5-1235U · 16 GB
+   Jarvis orchestrator + PC node + SQLite
         │
         └── cloud inference: Groq (fast) · Gemini (deep)
 ```
@@ -150,7 +154,13 @@ API keys — both optional, and Jarvis runs without either:
 | `GEMINI_MODEL` | `gemini-2.5-flash` | |
 | `DATABASE_URL` | _(none)_ | Unset → SQLite. Postgres URL → durable storage. |
 | `JARVIS_DB_PATH` | `jarvis_system.db` | SQLite file location. |
-| `JARVIS_DEBUG` | `false` | Verbose logging. |
+| `JARVIS_DEBUG` | `false` | Verbose logging, and exception text on 500/502. Off, those responses stay generic. |
+| `JARVIS_CORS_ORIGINS` | _(empty)_ | Comma-separated browser origins. Empty is same-origin only. `*` is ignored. |
+| `JARVIS_MAX_BODY_BYTES` | `1048576` | Request body cap. File content types are refused. |
+| `JARVIS_MISSION_RATE_LIMIT` | `10` | Mission starts allowed per window. |
+| `JARVIS_LLM_RATE_LIMIT` | `30` | `POST /command` and `POST /mood` calls allowed per window. |
+| `JARVIS_RATE_WINDOW_SECONDS` | `60` | Window for both rate limits. |
+| `JARVIS_APPROVAL_TTL_SECONDS` | `900` | How long one approved tool call stays usable. Single-use either way. |
 
 > **Model note.** The original design document specified `llama-3.3-70b-versatile` as the primary
 > Groq engine. Groq is shutting that model down on **2026-08-16**, so the default here is
@@ -165,7 +175,8 @@ parameter, because browsers can't set headers on a WS handshake.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | Liveness, engine + storage state. **Unauthenticated** (for uptime probes). |
+| `GET` | `/health` | Liveness, plus the engine and storage state the PWA already reads. **Unauthenticated**. |
+| `GET` | `/ready` | Readiness: database, scheduler, and which integrations are configured. **Unauthenticated**. |
 | `GET` | `/api/v1/greeting` | Time-aware greeting and the mood scale. |
 | `POST` | `/api/v1/session/start` | Mint a session id. |
 | `GET` | `/api/v1/session/{id}` | Cheap existence check. |
@@ -174,14 +185,24 @@ parameter, because browsers can't set headers on a WS handshake.
 | `GET` | `/api/v1/mood/history` | Recent check-ins. |
 | `POST` | `/api/v1/feedback` | Attach a ±1 reward to a turn. |
 | `GET` | `/api/v1/telemetry/stats` | Counters. |
+| `GET` | `/api/usage` | Token and estimated-cost breakdowns by day, agent, and mission. |
 | `GET` | `/api/v1/dataset/export` | ShareGPT JSONL download. |
 | `POST` | `/api/v1/missions` | Create and start a mission. |
 | `GET` | `/api/v1/missions` | Recent missions. |
 | `GET` | `/api/v1/missions/{id}` | Mission with its task graph and progress. |
 | `GET` | `/api/v1/missions/{id}/messages` | Audited message bus for one mission. |
 | `POST` | `/api/v1/missions/{id}/cancel` | Cancel a running mission. |
+| `GET` | `/api/v1/tasks` | Personal tasks. Suggested and open by default. |
+| `POST` | `/api/v1/tasks` | Add a task. Due times with no zone are IST. |
+| `GET` | `/api/v1/tasks/{id}` | One task. |
+| `PATCH` | `/api/v1/tasks/{id}` | Edit fields. Status is not patched. |
+| `DELETE` | `/api/v1/tasks/{id}` | Remove a task. |
+| `POST` | `/api/v1/tasks/{id}/accept` | Accept an agent suggestion. |
+| `POST` | `/api/v1/tasks/{id}/complete` | Complete an open task. A repeating task files the next one. |
 | `GET` | `/api/v1/agents` | Loaded agent definitions. |
 | `GET` | `/api/v1/tools` | Tools with capability and risk. |
+| `GET` | `/api/v1/adapters/health` | Adapter circuits and last result. Does not call upstreams. |
+| `GET` | `/api/v1/alerts` | Delivered in-app trading alerts. |
 | `GET` | `/api/v1/nodes` | The fleet: every node, its capabilities and health. |
 | `POST` | `/api/v1/nodes/enrol` | Mint a one-time join token. |
 | `POST` | `/api/v1/nodes/dispatch` | Run a node tool directly. |
@@ -193,8 +214,9 @@ parameter, because browsers can't set headers on a WS handshake.
 | `GET` | `/api/v1/memory` | Browse stored facts. |
 | `GET` | `/api/v1/memory/search` | Hybrid search. |
 | `POST` | `/api/v1/memory` | Store a fact. |
-| `PUT` | `/api/v1/memory/{id}` | Correct a fact. |
-| `DELETE` | `/api/v1/memory/{id}` | Delete a fact. |
+| `PUT` | `/api/v1/memory/{id}` | Correct a fact. The correction is a new entry; retrieval returns that version. |
+| `DELETE` | `/api/v1/memory/{id}` | Hard-delete a fact and the versions it replaced. Writes an audit event. |
+| `POST` | `/api/v1/memory/retention` | Purge entries whose `expires_at` has passed. |
 | `WS` | `/ws/logs` | Live telemetry stream. |
 
 This contract is frozen — the Phase 2 dashboard is built against it, so the vanilla PWA in
@@ -226,10 +248,18 @@ app/
   nodes/       models · store · gateway                    (the fleet)
 nodes/pc/      the node agent that runs on each machine
   missions/    models · store · planner · scheduler        (orchestration)
-  tools/       registry · cloud/{memory,web}               (capability + risk)
+  tools/       registry · cloud/{memory,web,trading,ocr}  (capability + risk)
+  adapters/    base HTTP client, circuit breaker, registry
+  tools/       registry · cloud/{memory,web,tasks}        (capability + risk)
+  work_tasks/  personal tasks: IST due times, recurrence, suggestions
+    trading/   read-only crypto and NSE clients (not an order API)
+    ocr.py     POST /v1/extract; stub when the service URL is unset
+  contracts/   trading-v1 models; not served by this process
+  analytics/   paper and shadow outcome math; no model calls
+  alerts/      in-app inbox, IST quiet hours, daily briefing mission
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
-tests/         150 tests, all offline
+tests/         213 tests, all offline
 ```
 
 **Why one runner instead of a class per agent:** the roadmap calls for ~20 specialists. Twenty
@@ -261,12 +291,13 @@ cycles is a contained change.
 | 1 | FastAPI core, telemetry flywheel, mood check-in, PWA | **done** |
 | 2 | Missions, agents, tools, permissions, approvals, durability | **done** |
 | 2.6 | Memory search: hybrid retrieval, provenance, Memory panel | **done** |
-| 3 | Node protocol, capability registry, PC node agent | **done** |
-| 2.5 | Device registry, iPhone telemetry via Shortcuts, Telegram gateway | next |
-| 3 | Node protocol + PC node (shell, files, screenshots) | |
+| 3 | Node protocol, capability registry, PC node (`fs.*`, shell, stats) | **core done** |
+| 2.5 | Device check-ins, Telegram inbound, iOS client | **in progress** ([`PLAN.md`](docs/PLAN.md)) |
+| 3.x | Screenshots, AT-SPI/ydotool, Files/System panels, Ansible | open |
 | 4 | Android companion app (AccessibilityService) | |
 | 5 | Vision-verified device automation | |
-| 6 | Voice, more agents, fine-tuning pipeline | |
+| 6 | Voice, Ollama engine, scheduled briefs | |
+| — | Horizon A restart (Telegram + Ollama + mail + skills) | [`RESTART-PLAN.md`](docs/RESTART-PLAN.md) |
 
 **Devices dial out, never in.** A cloud host cannot reach a phone behind NAT, so every node opens an
 outbound WebSocket and holds it. That also makes the laptop just the largest node rather than a
@@ -282,6 +313,13 @@ Android-only.
 
 - The passcode is a single shared secret — enough to keep a reachable URL from being wide open, not
   a substitute for real auth. JWT + WebAuthn passkeys come later.
+- Cross-origin calls are off unless `JARVIS_CORS_ORIGINS` names the origin. A wildcard is never
+  accepted. Responses carry a same-origin content security policy, `nosniff`, and `no-referrer`,
+  and the page cannot be framed. Mission starts and model calls are rate-limited in process.
+  Outside `JARVIS_DEBUG`, errors do not include exception text or tracebacks.
+- Tool calls are denied unless the tool is registered and the agent holds its capability.
+  `external` and `dangerous` tools also need an approval of that exact call. The matrix is
+  `docs/architecture/permission-matrix.md`.
 - Secrets are read from the environment and handed only to the engine client that needs them.
   Nothing secret is committed; `.env` is gitignored.
 - Gemini's free tier may use prompts to improve Google's products. Fine for mood check-ins; worth

@@ -37,7 +37,10 @@
       <h1 id="greeting">Hello</h1>
       <p id="subtitle" class="subtitle">Connecting…</p>
     </div>
-    <button id="logs-toggle" class="icon-btn" aria-label="Toggle live telemetry" title="Live telemetry">◍</button>
+    <div class="topbar-actions">
+      <button id="logout-btn" class="icon-btn" type="button" aria-label="Log out" title="Log out">⎋</button>
+      <button id="logs-toggle" class="icon-btn" type="button" aria-label="Toggle live telemetry" title="Live telemetry">◍</button>
+    </div>
   </header>
 
   <div id="banner" class="banner hidden" role="status"></div>
@@ -73,6 +76,13 @@
     <div id="approval-list"></div>
   </section>
 
+  <!-- In-app alert inbox. Nothing here sends mail or a push. -->
+  <section class="card" aria-labelledby="alerts-heading">
+    <h2 id="alerts-heading">Alerts</h2>
+    <p class="hint">Delivered trading alerts. Quiet hours are held back and not listed.</p>
+    <div id="alert-list" class="alert-list"></div>
+  </section>
+
   <!-- Mission control -->
   <section class="card" aria-labelledby="missions-heading">
     <h2 id="missions-heading">Missions</h2>
@@ -82,6 +92,30 @@
       <button type="submit" class="primary" aria-label="Start mission">▶</button>
     </form>
     <div id="mission-list" class="mission-list"></div>
+  </section>
+
+  <!-- Todos -->
+  <section class="card" aria-labelledby="todos-heading">
+    <h2 id="todos-heading">Todos</h2>
+    <p id="todo-verdict" class="hint"></p>
+    <div id="todo-next" class="todo-next hidden"></div>
+    <form id="todo-add-form" class="chat-form">
+      <input id="todo-title" type="text" maxlength="500" placeholder="Capture something…" aria-label="Todo title" />
+      <button type="submit" class="primary" aria-label="Add todo">+</button>
+    </form>
+    <div id="todo-list" class="todo-list"></div>
+  </section>
+
+  <section class="card" aria-labelledby="tasks-heading">
+    <h2 id="tasks-heading">Tasks</h2>
+    <p class="hint">Due times are IST. A suggestion stays off the list until you accept it.</p>
+    <form id="task-form" class="task-form">
+      <input id="task-title" type="text" maxlength="300" autocomplete="off"
+             placeholder="Add a task…" aria-label="Task title" required />
+      <input id="task-due" type="datetime-local" aria-label="Due date and time, IST" />
+      <button type="submit" class="primary">Add</button>
+    </form>
+    <div id="task-list" class="task-list"></div>
   </section>
 
   <!-- Memory -->

@@ -14,7 +14,7 @@ from __future__ import annotations
 import secrets
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -92,7 +92,7 @@ def new_enrolment_token() -> str:
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def parse_capabilities(raw: Any) -> set[NodeCapability]:

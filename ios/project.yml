@@ -1,0 +1,64 @@
+# Generates Jarvis.xcodeproj so the project file isn't in git.
+#   cd ios && xcodegen
+#
+# Same setup as Orbit (dhruv-ios/app/project.yml): iOS 18, Swift 5 language
+# mode, the free Personal Team. See README.md for what the free team cannot do.
+#
+# NO app extensions — no widget, no Siri extension. A free Personal Team allows
+# three free-signed apps on the phone at once, and every extension counts as
+# one. App Intents live in the app target itself, which needs no extension.
+
+name: Jarvis
+options:
+  bundleIdPrefix: com.dhruvparekh
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: "3Y62758W54"   # "Dhruv Parekh" — same team as Orbit
+
+targets:
+  Jarvis:
+    type: application
+    platform: iOS
+    sources:
+      - path: Jarvis
+    info:
+      path: Jarvis/Info.plist
+      properties:
+        CFBundleDisplayName: Jarvis
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # Missing this key is a hard crash on the first Face ID prompt, not a
+        # denied permission.
+        NSFaceIDUsageDescription: >-
+          Jarvis uses Face ID to unlock the app, so nobody holding your
+          unlocked phone can read your conversations or approve actions.
+        # The Funnel URL is real HTTPS and needs nothing here. This only lets
+        # the app reach the host by its tailnet name (http://dhruv-ai:8000)
+        # while Funnel is off. It does not allow arbitrary plain-HTTP sites.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dhruvparekh.jarvis
+    scheme:
+      testTargets:
+        - JarvisTests
+
+  JarvisTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: JarvisTests
+    dependencies:
+      - target: Jarvis
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dhruvparekh.jarvis.tests

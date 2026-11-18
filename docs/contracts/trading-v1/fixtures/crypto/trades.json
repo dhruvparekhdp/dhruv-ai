@@ -1,0 +1,57 @@
+{
+  "source_engine": "crypto-signal-engine",
+  "schema_version": "1.0",
+  "generated_at": "2026-11-06T11:59:31Z",
+  "data_as_of": "2026-11-06T11:59:30Z",
+  "status": "ok",
+  "is_stale": false,
+  "mode": "paper",
+  "correlation_id": "corr-fixture-1",
+  "data": {
+    "items": [
+      {
+        "id": "trd-btc-closed",
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "qty": "0.010",
+        "price": {
+          "amount": "62000.00",
+          "currency": "USDT"
+        },
+        "fees": {
+          "amount": "1.24",
+          "currency": "USDT"
+        },
+        "opened_at": "2026-11-06T09:15:00Z",
+        "closed_at": "2026-11-06T11:30:00Z",
+        "pnl": {
+          "amount": "-12.40",
+          "currency": "USDT"
+        },
+        "strategy": "momentum",
+        "mode": "paper"
+      },
+      {
+        "id": "trd-btc-open",
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "qty": "0.005",
+        "price": {
+          "amount": "63500.00",
+          "currency": "USDT"
+        },
+        "fees": {
+          "amount": "0.63",
+          "currency": "USDT"
+        },
+        "opened_at": "2026-11-06T11:00:00Z",
+        "closed_at": null,
+        "pnl": null,
+        "strategy": "momentum",
+        "mode": "paper"
+      }
+    ],
+    "next_cursor": "cursor-2"
+  },
+  "errors": []
+}

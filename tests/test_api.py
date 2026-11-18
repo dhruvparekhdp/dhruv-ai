@@ -9,7 +9,6 @@ import json
 
 from tests.conftest import TEST_DATABASE_URL, TEST_PASSCODE
 
-
 # --- health ---------------------------------------------------------------
 
 
@@ -44,9 +43,8 @@ def test_websocket_rejects_bad_passcode(client) -> None:
     import pytest
     from starlette.websockets import WebSocketDisconnect
 
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect("/ws/logs?passcode=wrong") as ws:
-            ws.receive_text()
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws/logs?passcode=wrong") as ws:
+        ws.receive_text()
 
 
 # --- session --------------------------------------------------------------
@@ -185,7 +183,10 @@ def test_feedback_rating_is_range_checked(client, session_id: str) -> None:
 def test_agents_and_tools_are_listed(client) -> None:
     agents = client.get("/api/v1/agents").json()
     ids = {a["id"] for a in agents["agents"]}
-    assert ids == {"assistant", "memory", "operator", "planner", "research"}
+    assert ids == {
+        "assistant", "crypto_analyst", "memory", "nse_analyst", "operator",
+        "planner", "portfolio_analyst", "research", "risk_analyst", "trading_research",
+    }
     assert agents["count"] == len(ids)
 
     tools = client.get("/api/v1/tools").json()

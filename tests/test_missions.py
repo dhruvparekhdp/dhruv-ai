@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from app.agents.runner import AgentRunner
 from app.missions import store
 from app.missions.models import (
@@ -22,9 +20,9 @@ from app.missions.models import (
     new_mission_id,
     new_task_id,
 )
-from app.missions.planner import plan_mission, single_task_plan
+from app.missions.planner import plan_mission
 from app.missions.scheduler import MissionScheduler
-from tests.conftest import scripted_router, text_result, tool_result
+from tests.conftest import scripted_router, text_result
 
 
 def _plan_json(tasks: list[dict], notes: str = "") -> str:
@@ -147,7 +145,7 @@ async def test_failed_dependency_skips_downstream_tasks(agents) -> None:
         def __init__(self) -> None:
             self.n = 0
 
-        def chat(self, messages, tools=None, max_tokens=1200):  # noqa: ANN001
+        def chat(self, messages, tools=None, max_tokens=1200):
             self.n += 1
             if self.n == 1:
                 return text_result(_plan_json([
@@ -156,7 +154,7 @@ async def test_failed_dependency_skips_downstream_tasks(agents) -> None:
                 ]))
             raise RuntimeError("upstream exploded")
 
-        def complete(self, s, u):  # noqa: ANN001
+        def complete(self, s, u):
             return self.chat([])
 
     from app.agent.engines import EngineRouter

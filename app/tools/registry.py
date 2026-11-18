@@ -14,11 +14,14 @@ Every tool declares:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Awaitable, Callable, Protocol
+from typing import Any, Protocol
 
 from app.nodes.models import NodeCapability
+from app.tools.policy import PolicyLevel
 
 
 class Capability(str, Enum):
@@ -53,6 +56,8 @@ class Tool:
     parameters: dict[str, Any]          # JSON Schema for the arguments object
     capability: Capability
     risk: Risk
+    #: What the action does. This, not the prompt, decides whether it parks.
+    policy: PolicyLevel
     handler: ToolHandler
     #: Tools that must run on a device node rather than in-process.
     requires_node: bool = False
@@ -106,6 +111,7 @@ class ToolRegistry:
                 "description": tool.description,
                 "capability": tool.capability.value,
                 "risk": tool.risk.value,
+                "policy": tool.policy.value,
                 "requires_node": tool.requires_node,
                 "node_capability": tool.node_capability.value if tool.requires_node else None,
                 "untrusted": tool.untrusted,
@@ -121,6 +127,20 @@ class PermissionVerdict:
     reason: str = ""
 
 
+# Segments, not substrings: "read" must not match, and "border" must not match
+# "order". A hit here is a hard deny. Approval is the wrong control for a tool
+# whose only job is to send an order.
+_ORDER_LIKE = re.compile(
+    r"(?:^|[._-])(?:place|cancel|amend|modify|withdraw|transfer|submit|order|orders|buy|sell)(?:$|[._-])",
+    re.IGNORECASE,
+)
+
+
+def is_order_like(name: str) -> bool:
+    """True when the tool name is an order, cancel, transfer, or similar write."""
+    return _ORDER_LIKE.search(name) is not None
+
+
 def check_permission(
     tool: Tool,
     *,
@@ -132,7 +152,13 @@ def check_permission(
     Both gates must pass: the agent's explicit tool allowlist and its capability
     grants. The allowlist alone is not enough -- capabilities are what stop a
     typo in a YAML file from handing an agent the ability to spend money.
+
+    Order-like names are denied before either gate. A YAML edit cannot turn a
+    read into a place, cancel, or transfer.
     """
+    if is_order_like(tool.name):
+        return PermissionVerdict(False, reason="order-like tools are denied")
+
     if tool.name not in allowed_tools:
         return PermissionVerdict(False, reason=f"'{tool.name}' is not in this agent's toolset")
 
@@ -141,6 +167,13 @@ def check_permission(
             False,
             reason=f"'{tool.name}' requires {tool.capability.value}, which this agent lacks",
         )
+
+    # External calls (the network) park even when the older risk label is SAFE.
+    # The line below is the irreversible-action gate and stays specific to
+    # DANGEROUS: widening it to SENSITIVE would train the operator to approve
+    # routine writes without reading them.
+    if tool.policy.requires_approval and tool.risk is not Risk.DANGEROUS:
+        return PermissionVerdict(True, needs_approval=True, reason="external action requires approval")
 
     if tool.risk is Risk.DANGEROUS:
         return PermissionVerdict(True, needs_approval=True, reason="dangerous tool requires approval")
@@ -159,6 +192,7 @@ def tool(
     parameters: dict[str, Any],
     capability: Capability,
     risk: Risk,
+    policy: PolicyLevel,
     requires_node: bool = False,
     node_capability: NodeCapability = NodeCapability.EXECUTE,
     untrusted: bool = False,
@@ -173,6 +207,7 @@ def tool(
                 parameters=parameters,
                 capability=capability,
                 risk=risk,
+                policy=policy,
                 handler=handler,
                 requires_node=requires_node,
                 node_capability=node_capability,

@@ -1,0 +1,186 @@
+{
+  "$defs": {
+    "ApiError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ApiError",
+      "type": "object"
+    },
+    "FeedStatus": {
+      "enum": [
+        "ok",
+        "degraded",
+        "unavailable"
+      ],
+      "title": "FeedStatus",
+      "type": "string"
+    },
+    "Mode": {
+      "description": "Execution stance the engine is reporting. Live is intentionally absent.",
+      "enum": [
+        "paper",
+        "shadow",
+        "research"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "Page_Strategy_": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Strategy"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Cursor"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "Page[Strategy]",
+      "type": "object"
+    },
+    "SourceEngine": {
+      "enum": [
+        "crypto-signal-engine",
+        "nse-trade"
+      ],
+      "title": "SourceEngine",
+      "type": "string"
+    },
+    "Strategy": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "params_summary": {
+          "maxLength": 500,
+          "title": "Params Summary",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/StrategyStatus"
+        },
+        "version": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "status",
+        "params_summary"
+      ],
+      "title": "Strategy",
+      "type": "object"
+    },
+    "StrategyStatus": {
+      "enum": [
+        "active",
+        "paused",
+        "retired"
+      ],
+      "title": "StrategyStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "correlation_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/Page_Strategy_"
+    },
+    "data_as_of": {
+      "format": "date-time",
+      "title": "Data As Of",
+      "type": "string"
+    },
+    "errors": {
+      "items": {
+        "$ref": "#/$defs/ApiError"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "is_stale": {
+      "title": "Is Stale",
+      "type": "boolean"
+    },
+    "mode": {
+      "$ref": "#/$defs/Mode"
+    },
+    "schema_version": {
+      "pattern": "^1\\.0$",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_engine": {
+      "$ref": "#/$defs/SourceEngine"
+    },
+    "status": {
+      "$ref": "#/$defs/FeedStatus"
+    }
+  },
+  "required": [
+    "source_engine",
+    "schema_version",
+    "generated_at",
+    "data_as_of",
+    "status",
+    "is_stale",
+    "mode",
+    "correlation_id",
+    "data",
+    "errors"
+  ],
+  "title": "Envelope[Page[Strategy]]",
+  "type": "object"
+}
