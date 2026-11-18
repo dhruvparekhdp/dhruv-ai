@@ -29,6 +29,13 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.agents.trading_summary import (
+    CONTRACT_INSTRUCTIONS,
+    evidence_from_outputs,
+    rejection_text,
+    retry_message,
+    validate_trading_summary,
+)
 from app.agent.engines import EngineError, EngineRouter, ToolCall
 from app.core import usage as usage_ledger
 from app.agents.registry import AgentDefinition
@@ -41,6 +48,9 @@ log = logging.getLogger("jarvis.runner")
 #: Hard ceiling on model round-trips, independent of the agent's budget.
 #: Stops a model that keeps calling tools without ever concluding.
 MAX_ITERATIONS = 8
+#: How many times a trading summary may be rewritten after a failed check.
+#: The rejected draft is not stored.
+SUMMARY_RETRIES = 2
 
 
 class ApprovalRequired(Exception):
@@ -66,6 +76,10 @@ class RunResult:
     # Set when a spend budget was crossed. The scheduler pauses; it does not
     # treat this as a silent stop or as a task failure.
     budget_exceeded: str = ""
+    #: Full tool outputs. The log truncates; validation must see every symbol.
+    tool_outputs: list[str] = field(default_factory=list)
+    #: False when a trading summary exhausted its retries. Other agents stay True.
+    accepted: bool = True
 
     @property
     def total_tokens(self) -> int:
@@ -101,13 +115,21 @@ class AgentRunner:
         budget = definition.budget
         log.info("agent step agent=%s", definition.id)
 
+        system_prompt = definition.system_prompt
+        if definition.output_contract == "trading_summary":
+            system_prompt = f"{system_prompt}\n\n{CONTRACT_INSTRUCTIONS}"
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": definition.system_prompt},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": _build_user_message(objective, context)},
         ]
         schemas = tool_registry.schemas_for(definition.tools)
 
         result = RunResult(text="")
+        if definition.output_contract == "trading_summary":
+            # Stays false until a draft passes. A crash mid-loop must not store
+            # a summary that never cleared the check.
+            result.accepted = False
+        summary_attempts = 0
 
         # The scope covers the thread the router records from. asyncio.to_thread
         # copies the current context, so the call lands on this mission and agent.
@@ -158,8 +180,25 @@ class AgentRunner:
                     break
 
                 if not completion.wants_tools:
-                    result.text = completion.text
-                    break
+                    if definition.output_contract != "trading_summary":
+                        result.text = completion.text
+                        break
+                    problems = validate_trading_summary(
+                        completion.text or "",
+                        evidence_from_outputs(result.tool_outputs),
+                    )
+                    if not problems:
+                        result.text = completion.text
+                        result.accepted = True
+                        break
+                    summary_attempts += 1
+                    if summary_attempts > SUMMARY_RETRIES:
+                        result.text = rejection_text(problems)
+                        result.accepted = False
+                        break
+                    messages.append({"role": "assistant", "content": completion.text or ""})
+                    messages.append({"role": "user", "content": retry_message(problems)})
+                    continue
 
                 # Record the assistant turn verbatim so the model sees its own call.
                 messages.append(
@@ -196,6 +235,7 @@ class AgentRunner:
                     result.tool_log.append(
                         {"tool": call.name, "arguments": call.arguments, "output": output[:500]}
                     )
+                    result.tool_outputs.append(output)
                     messages.append(_tool_message(call, output))
             else:
                 # Loop ran to MAX_ITERATIONS without the model concluding.

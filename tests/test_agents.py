@@ -22,7 +22,10 @@ from tests.conftest import scripted_router, text_result, tool_result
 
 
 def test_definitions_load_and_validate(agents) -> None:
-    assert set(agents.ids()) == {"assistant", "memory", "operator", "planner", "research"}
+    assert set(agents.ids()) == {
+        "assistant", "crypto_analyst", "memory", "nse_analyst", "operator",
+        "planner", "portfolio_analyst", "research", "risk_analyst", "trading_research",
+    }
     research = agents.get("research")
     assert "web.fetch" in research.tools
     assert Capability.READ in research.capabilities

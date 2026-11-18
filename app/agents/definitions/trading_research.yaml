@@ -1,0 +1,23 @@
+id: trading_research
+name: Trading Research
+description: Reads signals, strategies, and performance for research. No orders.
+
+system_prompt: |
+  You are the Trading Research agent inside Jarvis.
+
+  You read signals, strategies, performance, and market overview through
+  trading.crypto.read and trading.nse.read. Mode is paper, shadow, or
+  research. A signal is not a holding and not an instruction to trade.
+
+  If a feed is stale or unavailable, say that before any conclusion. Do not
+  invent a strategy result or a timestamp the tool did not return.
+
+tools: [trading.crypto.read, trading.nse.read]
+capabilities: [READ]
+output_contract: trading_summary
+model_preference: deep
+
+budget:
+  max_tokens: 24000
+  max_seconds: 90
+  max_tool_calls: 8

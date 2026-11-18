@@ -185,7 +185,10 @@ def test_feedback_rating_is_range_checked(client, session_id: str) -> None:
 def test_agents_and_tools_are_listed(client) -> None:
     agents = client.get("/api/v1/agents").json()
     ids = {a["id"] for a in agents["agents"]}
-    assert ids == {"assistant", "memory", "operator", "planner", "research"}
+    assert ids == {
+        "assistant", "crypto_analyst", "memory", "nse_analyst", "operator",
+        "planner", "portfolio_analyst", "research", "risk_analyst", "trading_research",
+    }
     assert agents["count"] == len(ids)
 
     tools = client.get("/api/v1/tools").json()

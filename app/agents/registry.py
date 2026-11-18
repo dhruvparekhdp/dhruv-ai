@@ -48,6 +48,8 @@ class AgentDefinition:
     capabilities: set[Capability] = field(default_factory=set)
     model_preference: str = "fast"     # "fast" -> Groq, "deep" -> Gemini
     budget: Budget = field(default_factory=Budget)
+    #: Empty for ordinary agents. "trading_summary" turns on output checks.
+    output_contract: str = ""
 
     def describe(self) -> dict[str, Any]:
         return {
@@ -98,6 +100,12 @@ def _parse(raw: dict[str, Any], source: str) -> AgentDefinition:
     if preference not in ("fast", "deep"):
         raise AgentDefinitionError(f"{source}: model_preference must be 'fast' or 'deep'")
 
+    output_contract = str(raw.get("output_contract") or "")
+    if output_contract not in ("", "trading_summary"):
+        raise AgentDefinitionError(
+            f"{source}: output_contract must be empty or 'trading_summary'"
+        )
+
     return AgentDefinition(
         id=raw["id"],
         name=raw["name"],
@@ -107,6 +115,7 @@ def _parse(raw: dict[str, Any], source: str) -> AgentDefinition:
         capabilities=capabilities,
         model_preference=preference,
         budget=Budget.from_dict(raw.get("budget")),
+        output_contract=output_contract,
     )
 
 
@@ -131,6 +140,11 @@ class AgentRegistry:
         missing = [a for a in (DEFAULT_AGENT_ID, PLANNER_AGENT_ID) if a not in self._agents]
         if missing:
             raise AgentDefinitionError(f"required agent definition(s) missing: {missing}")
+
+        # Imported lazily: analysts.py imports this module's error type.
+        from app.agents.analysts import require_analysts
+
+        require_analysts(self)
 
         log.info("loaded %d agents: %s", len(self._agents), ", ".join(sorted(self._agents)))
         return self
