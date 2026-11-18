@@ -253,6 +253,7 @@ nodes/pc/      the node agent that runs on each machine
   work_tasks/  personal tasks: IST due times, recurrence, suggestions
     trading/   read-only crypto and NSE clients (not an order API)
   contracts/   trading-v1 models; not served by this process
+  analytics/   paper and shadow outcome math; no model calls
   services/    websocket_manager
   static/      the PWA (vanilla — no build step)
 tests/         213 tests, all offline

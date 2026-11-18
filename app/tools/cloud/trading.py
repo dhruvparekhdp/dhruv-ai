@@ -18,6 +18,8 @@ from app.adapters.models import Outcome
 from app.adapters.trading.base import TradingRead
 from app.adapters.trading.crypto import build_crypto_adapter
 from app.adapters.trading.nse import build_nse_adapter
+from app.analytics.narration import render_analysis
+from app.analytics.outcomes import compute_outcomes
 from app.tools.registry import Capability, Risk, ToolError, tool
 
 _LIST_RESOURCES = frozenset({"signals", "positions", "trades", "strategies"})
@@ -162,3 +164,76 @@ async def trading_crypto_read(resource: str, limit: int | None = None, **_: Any)
 )
 async def trading_nse_read(resource: str, limit: int | None = None, **_: Any) -> str:
     return await _read("nse", resource, limit)
+
+
+# One page. The contract's limit stops at 500. A cursor means the book is
+# incomplete, and the fact sheet says so instead of pretending the page is the
+# whole history.
+_TRADES_PAGE = 500
+
+
+def _unavailable_outcomes() -> str:
+    return "trading-outcomes\nstatus: unavailable\n"
+
+
+async def _outcomes(engine: str) -> str:
+    """GET /trades and score the page in-process. The model does not do the math."""
+    source_engine = _ENGINES[engine][0]
+    env_name = _ENGINES[engine][1]
+    adapter = _resolve(engine)
+    if adapter is None:
+        header = format_read(
+            source_engine=source_engine,
+            resource="trades",
+            read=TradingRead(
+                adapter=source_engine,
+                outcome=Outcome.UNAVAILABLE,
+                stale=False,
+                correlation_id="",
+                envelope=None,
+                reason="missing_base_url",
+                detail=f"{env_name} is not set",
+            ),
+        )
+        return header + "\n" + _unavailable_outcomes()
+    read = await adapter.trades(limit=_TRADES_PAGE)
+    header = format_read(source_engine=source_engine, resource="trades", read=read)
+    if read.envelope is None:
+        return header + "\n" + _unavailable_outcomes()
+    analysis = compute_outcomes(
+        list(read.envelope.data.items),
+        truncated=bool(read.envelope.data.next_cursor),
+    )
+    return header + "\n" + render_analysis(analysis)
+
+
+@tool(
+    name="trading.crypto.outcomes",
+    description=(
+        "Compute paper and shadow outcome stats from crypto-signal-engine /trades. "
+        "Returns sample size, period, win rate, average win, average loss, expectancy, "
+        "profit factor, max drawdown, by strategy, by symbol, and streaks. "
+        "Quote the sheet. Do not recompute. Read only."
+    ),
+    parameters={"type": "object", "properties": {}, "required": []},
+    capability=Capability.READ,
+    risk=Risk.SAFE,
+)
+async def trading_crypto_outcomes(**_: Any) -> str:
+    return await _outcomes("crypto")
+
+
+@tool(
+    name="trading.nse.outcomes",
+    description=(
+        "Compute paper and shadow outcome stats from nse-trade /trades. "
+        "Returns sample size, period, win rate, average win, average loss, expectancy, "
+        "profit factor, max drawdown, by strategy, by symbol, and streaks. "
+        "Quote the sheet. Do not recompute. Read only."
+    ),
+    parameters={"type": "object", "properties": {}, "required": []},
+    capability=Capability.READ,
+    risk=Risk.SAFE,
+)
+async def trading_nse_outcomes(**_: Any) -> str:
+    return await _outcomes("nse")

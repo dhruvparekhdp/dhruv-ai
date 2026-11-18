@@ -118,6 +118,7 @@ ios/                       native iPhone client — see ios/README.md (built on 
 docs/                      VISION, PLAN, ARCHITECTURE, DECISIONS, ROADMAP, SETUP-HOST, SETUP-NODE
     trading/             read-only crypto and NSE clients (trading-v1)
   contracts/             trading-v1 models; not mounted on the Jarvis API
+  analytics/             paper and shadow outcome math; no model calls
 nodes/pc/agent.py          the agent that runs on each machine
   services/websocket_manager.py
   static/                  vanilla PWA, no build step

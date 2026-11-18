@@ -331,7 +331,6 @@ class MissionScheduler:
                 "paused": 1,
             }
         if not outcome.accepted:
-        if not outcome.accepted:
             # A rejected summary is a failed task. Storing the draft would let
             # an invented holding ride into the mission summary.
             store.update_task(

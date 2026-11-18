@@ -20,11 +20,26 @@ ANALYST_AGENT_IDS: tuple[str, ...] = (
 # Exact tool lists. Adding web, memory, or shell here would let a summary
 # cite something the trading adapters did not return.
 ANALYST_TOOLS: dict[str, list[str]] = {
-    "crypto_analyst": ["trading.crypto.read"],
-    "nse_analyst": ["trading.nse.read"],
-    "portfolio_analyst": ["trading.crypto.read", "trading.nse.read"],
-    "risk_analyst": ["trading.crypto.read", "trading.nse.read"],
-    "trading_research": ["trading.crypto.read", "trading.nse.read"],
+    "crypto_analyst": ["trading.crypto.read", "trading.crypto.outcomes"],
+    "nse_analyst": ["trading.nse.read", "trading.nse.outcomes"],
+    "portfolio_analyst": [
+        "trading.crypto.read",
+        "trading.nse.read",
+        "trading.crypto.outcomes",
+        "trading.nse.outcomes",
+    ],
+    "risk_analyst": [
+        "trading.crypto.read",
+        "trading.nse.read",
+        "trading.crypto.outcomes",
+        "trading.nse.outcomes",
+    ],
+    "trading_research": [
+        "trading.crypto.read",
+        "trading.nse.read",
+        "trading.crypto.outcomes",
+        "trading.nse.outcomes",
+    ],
 }
 
 
