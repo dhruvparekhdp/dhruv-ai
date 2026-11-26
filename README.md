@@ -151,6 +151,10 @@ and Local only are visible on the conversation. Research searches when the
 question needs current information and Tavily is configured. Local only does
 not send the prompt to Groq, Gemini, or Tavily. Market answers stay read-only.
 
+Documents (Markdown, text, PDF, Word, CSV, up to 5 MB) are a separate
+knowledge base from personal memory. Answers cite the file and the page or
+section. The same file is stored once. Deleting it removes its passages.
+
 ---
 
 ## Configuration

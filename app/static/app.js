@@ -26,6 +26,9 @@
     moodScale: $("mood-scale"), moodNote: $("mood-note"), moodSubmit: $("mood-submit"),
     moodTrend: $("mood-trend"), trendBars: $("trend-bars"), trendAvg: $("trend-avg"),
     messages: $("messages"), chatForm: $("chat-form"), chatInput: $("chat-input"),
+    knowledgeUpload: $("knowledge-upload"), knowledgeFile: $("knowledge-file"),
+    knowledgeSearch: $("knowledge-search"), knowledgeQuery: $("knowledge-query"),
+    knowledgeHits: $("knowledge-hits"), knowledgeList: $("knowledge-list"),
     logsToggle: $("logs-toggle"), logsPanel: $("logs-panel"), logs: $("logs"),
     logoutBtn: $("logout-btn"),
     stats: $("stats"), exportBtn: $("export-btn"),
@@ -294,7 +297,14 @@
     }
     evidence.forEach((item) => {
       const url = item && typeof item.url === "string" ? item.url : "";
-      if (!url.startsWith("http://") && !url.startsWith("https://")) return;
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        if (item && item.kind === "document" && item.title) {
+          const line = document.createElement("p");
+          line.textContent = item.title;
+          block.appendChild(line);
+        }
+        return;
+      }
       const link = document.createElement("a");
       link.href = url;
       link.target = "_blank";
@@ -307,6 +317,107 @@
     el.messages.appendChild(block);
     el.messages.scrollTop = el.messages.scrollHeight;
   }
+
+  async function readResponse(res) {
+    if (res.status === 401) throw Object.assign(new Error("Unauthorized"), { unauthorized: true });
+    if (!res.ok) {
+      let detail = `Request failed (${res.status})`;
+      try {
+        const data = await res.json();
+        if (typeof data.detail === "string") detail = data.detail;
+      } catch (_) { /* non-JSON error body */ }
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
+  function renderDocuments(documents) {
+    el.knowledgeList.innerHTML = "";
+    (documents || []).forEach((doc) => {
+      const row = document.createElement("div");
+      row.className = "doc-row";
+      const label = document.createElement("span");
+      label.textContent = `${doc.filename} · ${doc.chunk_count} passage(s)`;
+      const reindex = document.createElement("button");
+      reindex.type = "button";
+      reindex.className = "ghost";
+      reindex.textContent = "Reindex";
+      reindex.addEventListener("click", async () => {
+        try {
+          await api(`/api/v1/knowledge/documents/${encodeURIComponent(doc.document_id)}/reindex`, { method: "POST" });
+          await loadKnowledge();
+        } catch (err) {
+          pushLog("error", err.message);
+        }
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "ghost";
+      remove.textContent = "Delete";
+      remove.addEventListener("click", async () => {
+        try {
+          await api(`/api/v1/knowledge/documents/${encodeURIComponent(doc.document_id)}`, { method: "DELETE" });
+          await loadKnowledge();
+        } catch (err) {
+          pushLog("error", err.message);
+        }
+      });
+      row.append(label, reindex, remove);
+      el.knowledgeList.appendChild(row);
+    });
+  }
+
+  async function loadKnowledge() {
+    const data = await api("/api/v1/knowledge/documents");
+    renderDocuments(data.documents);
+  }
+
+  el.knowledgeUpload.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const file = el.knowledgeFile.files && el.knowledgeFile.files[0];
+    if (!file) return;
+    const body = new FormData();
+    body.append("file", file);
+    try {
+      const res = await fetch("/api/v1/knowledge/documents", {
+        method: "POST",
+        headers: authHeaders(),
+        body,
+      });
+      await readResponse(res);
+      el.knowledgeFile.value = "";
+      await loadKnowledge();
+    } catch (err) {
+      if (err.unauthorized) { showLock("Session expired. Enter the passcode again."); return; }
+      pushLog("error", err.message);
+    }
+  });
+
+  el.knowledgeSearch.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = el.knowledgeQuery.value.trim();
+    if (!q) return;
+    try {
+      const data = await api(`/api/v1/knowledge/search?q=${encodeURIComponent(q)}`);
+      el.knowledgeHits.innerHTML = "";
+      if (!data.count) {
+        const empty = document.createElement("p");
+        empty.className = "knowledge-hit";
+        empty.textContent = "Nothing in the knowledge base supports that.";
+        el.knowledgeHits.appendChild(empty);
+        return;
+      }
+      data.hits.forEach((hit) => {
+        const line = document.createElement("p");
+        line.className = "knowledge-hit";
+        const where = hit.page ? `, page ${hit.page}` : "";
+        line.textContent = `${hit.filename}, ${hit.section}${where}: ${hit.excerpt}`;
+        el.knowledgeHits.appendChild(line);
+      });
+    } catch (err) {
+      pushLog("error", err.message);
+    }
+  });
 
   async function loadHistory() {
     if (!sessionId) return;
@@ -1158,6 +1269,7 @@
         localStorage.setItem(SESSION_KEY, sessionId);
       }
       if (reused) await loadHistory();
+      await loadKnowledge();
 
       el.subtitle.textContent = "Jarvis is listening.";
       keepSocket = true;

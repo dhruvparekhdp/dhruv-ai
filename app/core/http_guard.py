@@ -5,8 +5,9 @@ Anything else has to be named in JARVIS_CORS_ORIGINS. A `*` is ignored: pairing
 it with Access-Control-Allow-Credentials would let any website call the API
 with the operator's cookies.
 
-There is no upload route. Bodies that claim to be a file are rejected, and
-every body is capped, so a client cannot pin the worker with a huge payload.
+One route accepts a document: POST /api/v1/knowledge/documents. Every other
+body that claims to be a file is rejected. Bodies are capped, and that one
+route has its own larger cap, so a client cannot pin the worker.
 
 Mission starts and model calls share one process-local window each. This is a
 single-user system; a per-IP bucket would let a client rotate addresses around
@@ -65,6 +66,20 @@ _UPLOAD_TYPES = frozenset({
     "application/x-gzip",
 })
 
+# The knowledge upload is the only exception. The handler still checks the
+# file extension, so an octet-stream named .exe does not get stored.
+KNOWLEDGE_UPLOAD_PATH = "/api/v1/knowledge/documents"
+KNOWLEDGE_MAX_BYTES = 5 * 1024 * 1024
+_KNOWLEDGE_TYPES = frozenset({
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "text/x-markdown",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/octet-stream",
+})
+
 _CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 _CORS_HEADERS = ["Authorization", "Content-Type", "X-Jarvis-Passcode"]
 
@@ -83,14 +98,30 @@ def reset_rate_limits() -> None:
             _hits[kind] = []
 
 
-def is_disallowed_upload(content_type: str | None) -> bool:
-    """True when the body claims to be a file. This API has no upload route."""
+def is_disallowed_upload(
+    content_type: str | None, *, path: str = "", method: str = ""
+) -> bool:
+    """True when the body claims to be a file this route cannot store."""
     if not content_type:
         return False
     media = content_type.split(";", 1)[0].strip().lower()
+    if (
+        method.upper() == "POST"
+        and path.rstrip("/") == KNOWLEDGE_UPLOAD_PATH
+        and (media in _KNOWLEDGE_TYPES or media.startswith("multipart/"))
+    ):
+        return False
     if media in _UPLOAD_TYPES:
         return True
     return any(media.startswith(prefix) for prefix in _UPLOAD_PREFIXES)
+
+
+def body_limit(method: str, path: str) -> int:
+    """Byte cap for this request. The document route may exceed the JSON cap."""
+    cap = get_settings().max_body_bytes
+    if method.upper() == "POST" and path.rstrip("/") == KNOWLEDGE_UPLOAD_PATH:
+        return max(cap, KNOWLEDGE_MAX_BYTES)
+    return cap
 
 
 def cors_middleware_config() -> dict[str, Any]:
@@ -226,11 +257,13 @@ class RequestGuardMiddleware:
             return
 
         headers = Headers(scope=scope)
-        if is_disallowed_upload(headers.get("content-type")):
+        path = str(scope.get("path") or "")
+        method = str(scope.get("method") or "")
+        if is_disallowed_upload(headers.get("content-type"), path=path, method=method):
             await _send_json(send, 415, "This server does not accept file uploads.")
             return
 
-        max_bytes = get_settings().max_body_bytes
+        max_bytes = body_limit(method, path)
         raw_length = headers.get("content-length")
         if raw_length is not None:
             try:

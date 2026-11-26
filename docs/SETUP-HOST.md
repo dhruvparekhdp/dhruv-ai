@@ -204,7 +204,9 @@ environment-managed and will not replace it. Saved values are sealed in the
 database (`JARVIS_SETTINGS_KEY`, or the passcode when that is unset) and apply
 on the next request. They are not stored in the browser. Chat modes are Fast,
 Research, and Local only. Research uses Tavily when `SEARCH_API_KEY` is set.
-Local only does not call Groq, Gemini, or Tavily.
+Local only does not call Groq, Gemini, or Tavily. Documents are uploaded from
+the Documents section (Markdown, text, PDF, Word, CSV, 5 MB). They are stored
+apart from personal memory, and a chat answer cites the file and page.
 
 Set up the local database:
 

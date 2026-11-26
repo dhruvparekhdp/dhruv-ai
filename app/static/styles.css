@@ -225,6 +225,12 @@ button.ghost {
 .rate-btn:active { transform: scale(0.9); }
 .rate-btn.rated { opacity: 1; }
 
+.knowledge-form { display: flex; gap: 8px; margin-top: 8px; }
+.knowledge-form input { flex: 1; }
+.knowledge-form button { width: auto; margin-top: 0; }
+.doc-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.doc-row button { width: auto; margin-top: 0; }
+.knowledge-hit { margin: 6px 0; font-size: 13px; color: var(--text-dim); }
 .mode-row { display: flex; gap: 6px; margin: 8px 0; }
 .mode-btn { margin-top: 0; width: auto; flex: 1; }
 .mode-btn.selected { border-color: var(--accent); }

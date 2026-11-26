@@ -82,6 +82,22 @@
     <div id="gateway-list" class="gateway-list"></div>
   </section>
 
+  <section class="card" aria-labelledby="documents-heading">
+    <h2 id="documents-heading">Documents</h2>
+    <p class="hint">Markdown, text, PDF, Word, and CSV, up to 5 MB. The same file is kept once. Answers cite the file and the page or section.</p>
+    <form id="knowledge-upload" class="knowledge-form">
+      <input id="knowledge-file" type="file" accept=".md,.txt,.pdf,.docx,.csv" aria-label="Document file" />
+      <button type="submit" class="ghost">Upload</button>
+    </form>
+    <form id="knowledge-search" class="knowledge-form">
+      <input id="knowledge-query" type="text" maxlength="1000" autocomplete="off"
+             placeholder="Search documents…" aria-label="Search documents" />
+      <button type="submit" class="ghost">Search</button>
+    </form>
+    <div id="knowledge-hits"></div>
+    <div id="knowledge-list"></div>
+  </section>
+
   <section class="card" aria-labelledby="keys-heading">
     <h2 id="keys-heading">Keys</h2>
     <p class="hint">Saved on this server. Nothing on this page is written to browser storage. A value that comes from the environment stays read-only.</p>

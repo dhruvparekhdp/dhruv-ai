@@ -686,3 +686,24 @@ of thought, and the messages API does not return the system prompt.
 
 Earlier turns in the same session are sent as user and assistant text, capped
 at eight. The UI reloads them. A greeting on Fast has no method summary.
+
+---
+
+## D-043 · Documents live in their own store, beside memory
+
+Personal facts stay in hybrid memory. Uploaded files live in
+`knowledge_documents` and `knowledge_chunks`. Markdown, text, PDF, Word, and
+CSV are accepted, up to 5 MB, and only on `POST /api/v1/knowledge/documents`.
+Every other route still refuses a file-shaped body (D-033). The original
+bytes are kept so reindex does not need the file again. The same bytes,
+hashed, are stored once.
+
+Chunks keep the filename's section or the PDF page. Embeddings use the same
+local model as memory. If that model is missing or fails, the chunk is stored
+without a vector and keyword search still answers. Deleting a document
+deletes its chunks and embeddings together.
+
+Chat cites the filename and the page or section. A greeting does not search
+the knowledge base. When a question about an uploaded document has no
+supporting passage, the reply says so. Excerpts are redacted before they
+enter a prompt.

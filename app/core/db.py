@@ -44,8 +44,14 @@ def q(sql: str) -> str:
 # Type/literal names that differ between the two dialects. DDL is written with
 # `{name}` slots and formatted with the right mapping at init time.
 _DDL_TYPES: dict[str, dict[str, str]] = {
-    "sqlite": {"ts": "TIMESTAMP", "now": "CURRENT_TIMESTAMP", "json": "TEXT", "true": "1", "false": "0"},
-    "postgres": {"ts": "TIMESTAMPTZ", "now": "NOW()", "json": "JSONB", "true": "TRUE", "false": "FALSE"},
+    "sqlite": {
+        "ts": "TIMESTAMP", "now": "CURRENT_TIMESTAMP", "json": "TEXT",
+        "blob": "BLOB", "true": "1", "false": "0",
+    },
+    "postgres": {
+        "ts": "TIMESTAMPTZ", "now": "NOW()", "json": "JSONB",
+        "blob": "BYTEA", "true": "TRUE", "false": "FALSE",
+    },
 }
 
 

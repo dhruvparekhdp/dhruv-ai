@@ -6,6 +6,7 @@ uvicorn[standard]==0.34.0      # [standard] pulls in the websockets implementati
 pydantic==2.12.5
 PyYAML==6.0.2                  # declarative agent definitions
 httpx==0.28.1                  # web.fetch, and fastapi.testclient
+python-multipart==0.0.20       # the document upload route
 Pillow==13.0.0                  # pinned above vulnerable transitive versions
 
 # LLM providers. Both are optional at runtime: the engine router degrades to a
@@ -21,3 +22,7 @@ psycopg[binary]==3.2.3
 # runtime: if the model cannot be fetched, memory search falls back to
 # keyword-only rather than failing.
 fastembed==0.9.1
+
+# PDF text for the document knowledge base. Optional at runtime: a missing
+# package is reported on that upload, and the other file types still ingest.
+pypdf==5.9.0

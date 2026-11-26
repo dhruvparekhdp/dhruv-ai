@@ -50,6 +50,8 @@ _TABLES = (
     "work_tasks",
     "alerts",
     "provider_settings",
+    "knowledge_chunks",
+    "knowledge_documents",
 )
 
 

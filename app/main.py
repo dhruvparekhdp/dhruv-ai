@@ -24,7 +24,19 @@ from typing import Annotated, Any
 from agency.migrate import migrate_up
 from agency.router import router as agency_router
 from agency.seed import seed_if_empty
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -65,6 +77,8 @@ from app.core.structured_log import configure_logging
 from app.core.telemetry import telemetry
 from app.devices import store as device_store
 from app.devices.store import DeviceError
+from app.knowledge import store as knowledge_store
+from app.knowledge.store import DocumentNotFoundError, KnowledgeError
 from app.memory import search as memory_search
 from app.memory import store as memory_store
 from app.missions import store as mission_store
@@ -114,6 +128,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     usage_ledger.init_db()
     mission_store.init_db()
     memory_store.init_db()
+    knowledge_store.init_db()
     node_store.init_db()
     todo_store.init_db()
     device_store.init_db()
@@ -624,6 +639,64 @@ async def session_messages(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown session_id.")
     messages = telemetry.list_turns(session_id, limit=limit)
     return {"status": "success", "count": len(messages), "messages": messages}
+
+
+def _knowledge_error(exc: KnowledgeError) -> HTTPException:
+    missing = isinstance(exc, DocumentNotFoundError)
+    code = status.HTTP_404_NOT_FOUND if missing else status.HTTP_422_UNPROCESSABLE_ENTITY
+    return HTTPException(code, str(exc))
+
+
+_UPLOAD = File(...)
+
+
+@app.post("/api/v1/knowledge/documents", tags=["knowledge"], status_code=status.HTTP_201_CREATED)
+async def upload_document(_: Guarded, file: UploadFile = _UPLOAD) -> dict[str, Any]:
+    """Store one document. The same bytes are kept once."""
+    name = file.filename or ""
+    data = await file.read()
+    try:
+        saved = knowledge_store.ingest(name, data)
+    except KnowledgeError as exc:
+        raise _knowledge_error(exc) from exc
+    return {"status": "success", **saved}
+
+
+@app.get("/api/v1/knowledge/documents", tags=["knowledge"])
+async def list_documents(_: Guarded) -> dict[str, Any]:
+    documents = knowledge_store.list_documents()
+    return {"status": "success", "count": len(documents), "documents": documents}
+
+
+@app.get("/api/v1/knowledge/search", tags=["knowledge"])
+async def search_documents(
+    _: Guarded,
+    q: str = Query(min_length=1, max_length=1000),
+    limit: int = Query(default=8, ge=1, le=20),
+) -> dict[str, Any]:
+    try:
+        hits = knowledge_store.search(q, limit=limit)
+    except KnowledgeError as exc:
+        raise _knowledge_error(exc) from exc
+    return {"status": "success", "count": len(hits), "hits": hits}
+
+
+@app.post("/api/v1/knowledge/documents/{document_id}/reindex", tags=["knowledge"])
+async def reindex_document(document_id: str, _: Guarded) -> dict[str, Any]:
+    try:
+        saved = knowledge_store.reindex(document_id)
+    except KnowledgeError as exc:
+        raise _knowledge_error(exc) from exc
+    return {"status": "success", **saved}
+
+
+@app.delete("/api/v1/knowledge/documents/{document_id}", tags=["knowledge"])
+async def delete_document(document_id: str, _: Guarded) -> dict[str, Any]:
+    try:
+        knowledge_store.delete(document_id)
+    except KnowledgeError as exc:
+        raise _knowledge_error(exc) from exc
+    return {"status": "success"}
 
 
 @app.post("/api/v1/command", tags=["chat"])

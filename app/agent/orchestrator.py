@@ -22,6 +22,7 @@ from app.agent.engines import EngineRouter
 from app.agent.retrieval import Retrieval
 from app.core import usage as usage_ledger
 from app.core.telemetry import telemetry
+from app.knowledge.store import DocContext, retrieve_for_chat
 from app.services.websocket_manager import ws_manager
 
 log = logging.getLogger("jarvis.orchestrator")
@@ -83,8 +84,10 @@ class Orchestrator:
 
         # Mood check-ins pass their own prompt and must not search the web.
         gathered = Retrieval()
+        docs = DocContext()
         if system_prompt is None:
             gathered = await retrieval.gather(user_prompt, local_only=(mode == "local"))
+            docs = retrieve_for_chat(user_prompt)
 
         effective_prompt = system_prompt or prompts.BASE_SYSTEM_PROMPT
         if not intent_router.is_supported(intent):
@@ -97,8 +100,13 @@ class Orchestrator:
         block = retrieval.untrusted_block(gathered)
         if block:
             effective_prompt += "\n\n" + block
+        doc_block = docs.prompt_block()
+        if doc_block:
+            effective_prompt += "\n\n" + doc_block
         if gathered.note:
             effective_prompt += "\n\n" + gathered.note
+        if docs.note:
+            effective_prompt += "\n\n" + docs.note
 
         messages = _messages(session_id, effective_prompt, user_prompt)
         prefer = "deep" if mode == "research" else "fast"
@@ -138,12 +146,14 @@ class Orchestrator:
             prompt=user_prompt,
             intent=intent,
             gathered=gathered,
+            docs=docs,
         )
         method = _method(
             provider=result.provider,
             intent=intent,
             mode=mode,
             gathered=gathered,
+            docs=docs,
         )
 
         trajectory_id = telemetry.log_trajectory(
@@ -184,7 +194,7 @@ class Orchestrator:
             completion_tokens=result.completion_tokens,
             mode=mode,
             method=method,
-            evidence=gathered.evidence(),
+            evidence=[*gathered.evidence(), *docs.evidence()],
         )
 
     async def run_mood_checkin(
@@ -240,6 +250,7 @@ def _finish_answer(
     prompt: str,
     intent: str,
     gathered: Retrieval,
+    docs: DocContext,
 ) -> str:
     """Add citations and the refusals a fallback model will not invent."""
     answer = text.strip()
@@ -256,6 +267,7 @@ def _finish_answer(
         answer = f"{answer}\n\n{citations}" if answer else citations
     if gathered.note and gathered.note not in answer:
         answer = f"{gathered.note}\n\n{answer}" if answer else gathered.note
+    answer = _append_documents(answer, provider, docs)
     if intent == intent_router.QUANT_TRADING and "no order was placed" not in answer.lower():
         answer += (
             "\n\nNo order was placed. This is read-only research, and a figure without "
@@ -275,11 +287,28 @@ def _wants_shell(prompt: str) -> bool:
     return any(phrase in lowered for phrase in ("run the command", "run this", "execute", "sudo "))
 
 
-def _method(*, provider: str, intent: str, mode: str, gathered: Retrieval) -> str:
+def _append_documents(answer: str, provider: str, docs: DocContext) -> str:
+    if provider == "ECHO" and docs.sources:
+        excerpts = "\n\n".join(f"{source.label()}\n{source.excerpt}" for source in docs.sources)
+        if excerpts not in answer:
+            answer = f"{answer}\n\nFrom the knowledge base:\n\n{excerpts}".strip()
+    citation = docs.citation()
+    if citation and citation not in answer:
+        answer = f"{answer}\n\n{citation}".strip()
+    if docs.note and docs.note not in answer:
+        answer = f"{docs.note}\n\n{answer}".strip() if answer else docs.note
+    return answer
+
+
+def _method(
+    *, provider: str, intent: str, mode: str, gathered: Retrieval, docs: DocContext
+) -> str:
     """One or two sentences about what was used. Not a chain of thought."""
     complex_turn = bool(
         gathered.sources
         or gathered.note
+        or docs.sources
+        or docs.note
         or mode != "fast"
         or intent != intent_router.PERSONAL_CHAT
     )
@@ -295,6 +324,10 @@ def _method(*, provider: str, intent: str, mode: str, gathered: Retrieval) -> st
     if gathered.sources:
         parts.append(
             f"Used {len(gathered.sources)} retrieved source(s). Page text was treated as untrusted."
+        )
+    if docs.sources:
+        parts.append(
+            f"Used {len(docs.sources)} document passage(s). File text was treated as untrusted."
         )
     if intent == intent_router.QUANT_TRADING:
         parts.append("No order was placed.")
