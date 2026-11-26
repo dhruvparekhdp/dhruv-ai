@@ -202,7 +202,9 @@ The same keys can be saved from the Keys page after you sign in. A variable
 that is already set in this file stays in force: the page shows it as
 environment-managed and will not replace it. Saved values are sealed in the
 database (`JARVIS_SETTINGS_KEY`, or the passcode when that is unset) and apply
-on the next request. They are not stored in the browser.
+on the next request. They are not stored in the browser. Chat modes are Fast,
+Research, and Local only. Research uses Tavily when `SEARCH_API_KEY` is set.
+Local only does not call Groq, Gemini, or Tavily.
 
 Set up the local database:
 

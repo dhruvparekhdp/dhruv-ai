@@ -54,8 +54,10 @@ def test_coding_wins_over_trading_when_both_match() -> None:
     assert classify_intent("refactor the code that sells positions") == CODING_AGENT
 
 
-def test_only_chat_is_supported_in_phase_one() -> None:
+def test_chat_answers_coding_research_and_it() -> None:
+    """Chat can discuss these. It still does not run a shell or place an order."""
     assert is_supported(PERSONAL_CHAT)
-    assert not is_supported(OS_AUTOMATION)
-    assert not is_supported(CODING_AGENT)
-    assert not is_supported(QUANT_TRADING)
+    assert is_supported(OS_AUTOMATION)
+    assert is_supported(CODING_AGENT)
+    assert is_supported(QUANT_TRADING)
+    assert not is_supported("UNKNOWN")

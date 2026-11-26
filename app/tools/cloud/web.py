@@ -1,11 +1,8 @@
 """Web tools.
 
-Deliberately minimal: fetch a page and extract readable text. No search-engine
-key is wired up because every free search API needs its own signup, and the
-Research Agent is useful without one as long as it can read a URL you give it.
-
-`web.search` is registered but returns an honest "not configured" message
-rather than a fabricated result list -- a fake answer is worse than no answer.
+`web.fetch` reads one URL. `web.search` calls Tavily when a search key is
+configured and says so when it is not. A missing key is an honest failure:
+a fabricated result list would poison the answer and the training data.
 """
 
 from __future__ import annotations
@@ -35,6 +32,34 @@ def _to_text(raw_html: str) -> str:
     return _WHITESPACE.sub("\n\n", text).strip()
 
 
+async def fetch_page(url: str) -> str:
+    """Readable text for one http(s) URL. Errors stay a fixed sentence."""
+    if not url.startswith(("http://", "https://")):
+        raise ToolError("url must start with http:// or https://")
+
+    try:
+        import httpx
+    except ImportError as exc:  # pragma: no cover - httpx ships with the app
+        raise ToolError("httpx is not installed") from exc
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=TIMEOUT_SECONDS) as client:
+            response = await client.get(url, headers={"User-Agent": "Jarvis/0.2 (personal assistant)"})
+    except TimeoutError as exc:
+        raise ToolError(f"timed out after {TIMEOUT_SECONDS}s fetching {url}") from exc
+    except Exception as exc:
+        # httpx errors can include response bodies. The URL is the caller's own.
+        raise ToolError(f"could not fetch {url}") from exc
+
+    if response.status_code >= 400:
+        raise ToolError(f"{url} returned HTTP {response.status_code}")
+
+    text = _to_text(response.text)
+    if len(text) > MAX_CHARS:
+        text = text[:MAX_CHARS] + f"\n\n[truncated at {MAX_CHARS} characters]"
+    return text or "[page had no extractable text]"
+
+
 @tool(
     name="web.fetch",
     description=(
@@ -52,44 +77,11 @@ def _to_text(raw_html: str) -> str:
     policy=PolicyLevel.EXTERNAL,
 )
 async def web_fetch_tool(url: str, **_: Any) -> str:
-    if not url.startswith(("http://", "https://")):
-        raise ToolError("url must start with http:// or https://")
-
-    try:
-        import httpx
-    except ImportError as exc:  # pragma: no cover - httpx ships with the app
-        raise ToolError("httpx is not installed") from exc
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=TIMEOUT_SECONDS) as client:
-            response = await client.get(url, headers={"User-Agent": "Jarvis/0.2 (personal assistant)"})
-    except TimeoutError as exc:
-        raise ToolError(f"timed out after {TIMEOUT_SECONDS}s fetching {url}") from exc
-    except Exception as exc:
-        raise ToolError(f"could not fetch {url}: {exc}") from exc
-
-    if response.status_code >= 400:
-        raise ToolError(f"{url} returned HTTP {response.status_code}")
-
-    text = _to_text(response.text)
-    if len(text) > MAX_CHARS:
-        text = text[:MAX_CHARS] + f"\n\n[truncated at {MAX_CHARS} characters]"
-    return text or "[page had no extractable text]"
+    return await fetch_page(url)
 
 
-@tool(
-    name="web.search",
-    description="Search the web for a query. Returns result titles and URLs.",
-    parameters={
-        "type": "object",
-        "properties": {"query": {"type": "string"}},
-        "required": ["query"],
-    },
-    capability=Capability.READ,
-    risk=Risk.SAFE,
-    policy=PolicyLevel.EXTERNAL,
-)
-async def web_search_tool(query: str, **_: Any) -> str:
+async def tavily_search(query: str) -> list[dict[str, str]]:
+    """Titles, URLs, and short snippets. Raises ToolError with no provider body."""
     api_key = search_api_key()
     if not api_key:
         # Honest failure. Inventing plausible-looking results would poison both
@@ -112,15 +104,50 @@ async def web_search_tool(query: str, **_: Any) -> str:
             )
         response.raise_for_status()
         payload = response.json()
-        results = payload.get("results", []) if isinstance(payload, dict) else []
     except (httpx.HTTPError, ValueError, AttributeError, TypeError) as exc:
         # The client sees a fixed sentence. Provider bodies and httpx errors
         # can repeat the key that was just sent.
         raise ToolError("search failed") from exc
 
+    raw_results = payload.get("results", []) if isinstance(payload, dict) else []
+    items: list[dict[str, str]] = []
+    if not isinstance(raw_results, list):
+        return items
+    for item in raw_results:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            continue
+        title = item.get("title")
+        content = item.get("content")
+        items.append(
+            {
+                "title": title if isinstance(title, str) and title else "untitled",
+                "url": url,
+                "content": content[:300] if isinstance(content, str) else "",
+            }
+        )
+    return items
+
+
+@tool(
+    name="web.search",
+    description="Search the web for a query. Returns result titles and URLs.",
+    parameters={
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+    },
+    capability=Capability.READ,
+    risk=Risk.SAFE,
+    policy=PolicyLevel.EXTERNAL,
+)
+async def web_search_tool(query: str, **_: Any) -> str:
+    results = await tavily_search(query)
     if not results:
         return f"No results for '{query}'."
     return "\n".join(
-        f"- {item.get('title', 'untitled')} — {item.get('url', '')}\n  {item.get('content', '')[:300]}"
+        f"- {item['title']} — {item['url']}\n  {item['content']}"
         for item in results
     )

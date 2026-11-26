@@ -146,6 +146,11 @@ API keys — optional, and Jarvis runs without them:
 The signed-in Keys page can store a value when the matching variable is unset.
 An environment value is shown as environment-managed and is not replaced.
 
+Chat is a co-pilot for code, crypto and NSE research, and IT. Fast, Research,
+and Local only are visible on the conversation. Research searches when the
+question needs current information and Tavily is configured. Local only does
+not send the prompt to Groq, Gemini, or Tavily. Market answers stay read-only.
+
 ---
 
 ## Configuration

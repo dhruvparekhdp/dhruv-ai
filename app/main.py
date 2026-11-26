@@ -291,6 +291,7 @@ class CommandRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=100)
     prompt: str = Field(min_length=1, max_length=8000)
     intent_override: str | None = Field(default=None, max_length=32)
+    mode: str = Field(default="fast", pattern="^(fast|research|local)$")
 
 
 class MoodRequest(BaseModel):
@@ -612,6 +613,19 @@ async def get_session(session_id: str, _: Guarded) -> dict[str, Any]:
     return {"status": "success", "session_id": session_id, "exists": telemetry.session_exists(session_id)}
 
 
+@app.get("/api/v1/session/{session_id}/messages", tags=["chat"])
+async def session_messages(
+    session_id: str,
+    _: Guarded,
+    limit: int = Query(default=40, ge=1, le=100),
+) -> dict[str, Any]:
+    """Prior turns for this chat. The system prompt and routing notes stay on the server."""
+    if not telemetry.session_exists(session_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown session_id.")
+    messages = telemetry.list_turns(session_id, limit=limit)
+    return {"status": "success", "count": len(messages), "messages": messages}
+
+
 @app.post("/api/v1/command", tags=["chat"])
 async def execute_command(req: CommandRequest, _: Guarded) -> dict[str, Any]:
     """Main turn endpoint: route, complete, log, return."""
@@ -626,6 +640,7 @@ async def execute_command(req: CommandRequest, _: Guarded) -> dict[str, Any]:
             session_id=req.session_id,
             user_prompt=req.prompt,
             intent_override=req.intent_override,
+            mode=req.mode,
         )
     except Exception as exc:
         log.exception("command failed")
@@ -642,6 +657,9 @@ async def execute_command(req: CommandRequest, _: Guarded) -> dict[str, Any]:
         "model": turn.model,
         "latency_ms": turn.latency_ms,
         "degraded": turn.degraded,
+        "mode": turn.mode,
+        "method": turn.method,
+        "evidence": turn.evidence or [],
     }
 
 

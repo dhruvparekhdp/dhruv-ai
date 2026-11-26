@@ -663,3 +663,26 @@ Status responses name the source (`environment`, `saved`, `default`,
 call. Connection checks return a status word. They do not return the
 provider body. Secrets are not written to browser storage, query strings,
 logs, or telemetry.
+
+---
+
+## D-042 · Chat is a co-pilot, and the web is untrusted data
+
+Ordinary chat answers software, read-only crypto and NSE research, and IT
+troubleshooting. It does not run shell commands or place orders. The reply
+says so when the prompt asks for either.
+
+A turn has a mode: `fast`, `research`, or `local`. Local uses only a usable
+Ollama engine and then the echo fallback. It does not call Groq, Gemini, or
+Tavily, and it does not fetch a URL.
+
+A prompt that includes a URL, asks for "my bio" (read from the user-scope
+memory keys `bio_url`, `bio`, `website`, `homepage`, `site`), or asks for
+current information is retrieved before the model call. Search uses Tavily
+when `SEARCH_API_KEY` is configured and says so when it is not. Page text is
+appended as untrusted data. The client gets the URL and the retrieval time.
+The routing note stored for training stays a short label. It is not a chain
+of thought, and the messages API does not return the system prompt.
+
+Earlier turns in the same session are sent as user and assistant text, capped
+at eight. The UI reloads them. A greeting on Fast has no method summary.

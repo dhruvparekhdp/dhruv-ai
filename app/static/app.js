@@ -45,6 +45,7 @@
 
   let token = localStorage.getItem(TOKEN_KEY) || "";
   let sessionId = null;
+  let chatMode = "fast";
   let selectedMood = null;
   let socket = null;
   let keepSocket = false;
@@ -269,6 +270,53 @@
 
   // ----------------------------------------------------------------- chat
 
+  document.querySelectorAll(".mode-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      chatMode = btn.dataset.mode || "fast";
+      document.querySelectorAll(".mode-btn").forEach((other) => {
+        const on = other === btn;
+        other.classList.toggle("selected", on);
+        other.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+    });
+  });
+
+  function addMethod(data) {
+    const method = data && data.method ? String(data.method) : "";
+    const evidence = data && Array.isArray(data.evidence) ? data.evidence : [];
+    if (!method && !evidence.length) return;
+    const block = document.createElement("div");
+    block.className = "msg-method";
+    if (method) {
+      const line = document.createElement("p");
+      line.textContent = method;
+      block.appendChild(line);
+    }
+    evidence.forEach((item) => {
+      const url = item && typeof item.url === "string" ? item.url : "";
+      if (!url.startsWith("http://") && !url.startsWith("https://")) return;
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      const when = item.retrieved_at ? ` · ${item.retrieved_at}` : "";
+      link.textContent = `${item.title || url}${when}`;
+      block.appendChild(link);
+    });
+    if (!block.childNodes.length) return;
+    el.messages.appendChild(block);
+    el.messages.scrollTop = el.messages.scrollHeight;
+  }
+
+  async function loadHistory() {
+    if (!sessionId) return;
+    const data = await api(`/api/v1/session/${encodeURIComponent(sessionId)}/messages`);
+    (data.messages || []).forEach((turn) => {
+      if (turn.user) addMessage(turn.user, "user");
+      if (turn.assistant) addMessage(turn.assistant, "jarvis");
+    });
+  }
+
   el.chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const prompt = el.chatInput.value.trim();
@@ -279,9 +327,13 @@
     const pending = addMessage("…", "jarvis pending");
 
     try {
-      const data = await api("/api/v1/command", { method: "POST", body: { session_id: sessionId, prompt } });
+      const data = await api("/api/v1/command", {
+        method: "POST",
+        body: { session_id: sessionId, prompt, mode: chatMode },
+      });
       pending.remove();
       addMessage(data.response, "jarvis");
+      addMethod(data);
       addMeta(data.trajectory_id, data.provider, data.latency_ms);
       refreshStats();
     } catch (err) {
@@ -1105,6 +1157,7 @@
         sessionId = s.session_id;
         localStorage.setItem(SESSION_KEY, sessionId);
       }
+      if (reused) await loadHistory();
 
       el.subtitle.textContent = "Jarvis is listening.";
       keepSocket = true;

@@ -62,10 +62,16 @@
   <!-- Conversation -->
   <section class="card conversation" aria-labelledby="chat-heading">
     <h2 id="chat-heading">Conversation</h2>
+    <p class="hint">A co-pilot for code, crypto and NSE research, and IT. Research can search the web. Local only stays on this machine.</p>
+    <div class="mode-row" role="radiogroup" aria-label="Response mode">
+      <button type="button" class="mode-btn ghost selected" data-mode="fast" aria-pressed="true">Fast</button>
+      <button type="button" class="mode-btn ghost" data-mode="research" aria-pressed="false">Research</button>
+      <button type="button" class="mode-btn ghost" data-mode="local" aria-pressed="false">Local only</button>
+    </div>
     <div id="messages" class="messages" aria-live="polite"></div>
     <form id="chat-form" class="chat-form">
       <input id="chat-input" type="text" maxlength="8000" autocomplete="off"
-             placeholder="Say hi to Jarvis…" aria-label="Message" />
+             placeholder="Ask about code, a market, or a machine…" aria-label="Message" />
       <button type="submit" class="primary" aria-label="Send">↑</button>
     </form>
   </section>

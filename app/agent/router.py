@@ -81,10 +81,10 @@ def classify_intent(prompt: str) -> str:
 
 
 def is_supported(intent: str) -> bool:
-    """Whether this build can actually execute the intent.
+    """Whether chat can answer this intent.
 
-    Phase 1 ships conversation only. OS control, the coding agent, and the
-    trading engine are recognised by the router but not yet wired to tools --
-    so Jarvis says so plainly instead of hallucinating that it ran something.
+    Coding, market research, and IT troubleshooting are answered as advice.
+    Chat still does not run shell commands or place trades; the prompt says so
+    instead of pretending the action happened. An unknown intent is not supported.
     """
-    return intent == PERSONAL_CHAT
+    return intent in INTENTS

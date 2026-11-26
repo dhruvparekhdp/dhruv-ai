@@ -128,6 +128,32 @@ class TelemetryEngine:
             )
         return session_id
 
+    def list_turns(self, session_id: str, limit: int = 40) -> list[dict[str, Any]]:
+        """User and assistant text for one session. No system prompt, no reasoning."""
+        with get_conn() as conn:
+            rows = fetch_all(
+                conn,
+                """
+                SELECT trajectory_id, created_at, user_prompt, raw_llm_response, model_provider
+                FROM agent_trajectories
+                WHERE session_id = ?
+                ORDER BY created_at ASC, trajectory_id ASC
+                """,
+                (session_id,),
+            )
+        if limit > 0 and len(rows) > limit:
+            rows = rows[-limit:]
+        return [
+            {
+                "trajectory_id": row["trajectory_id"],
+                "created_at": str(row["created_at"]),
+                "user": row["user_prompt"],
+                "assistant": row["raw_llm_response"],
+                "provider": row["model_provider"],
+            }
+            for row in rows
+        ]
+
     def session_exists(self, session_id: str) -> bool:
         with get_conn() as conn:
             rows = fetch_all(

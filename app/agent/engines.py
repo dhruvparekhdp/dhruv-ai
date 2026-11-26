@@ -478,7 +478,13 @@ class EngineRouter:
             return False
         return llm_budget.is_available(getattr(engine, "provider", ""))
 
-    def _chain(self, *, deep: bool) -> list[Any]:
+    def _chain(self, *, deep: bool, local_only: bool = False) -> list[Any]:
+        # Local only stops at Ollama and echo. Falling through to Groq or
+        # Gemini would send the prompt to a provider the user just ruled out.
+        if local_only:
+            local: list[Any] = [self.ollama] if self._usable(self.ollama) else []
+            local.append(self.echo)
+            return local
         preferred = [self.gemini, self.groq] if deep else [self.groq, self.gemini]
         chain = [engine for engine in preferred if self._usable(engine)]
         if self._usable(self.ollama):
@@ -492,6 +498,7 @@ class EngineRouter:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         prefer: str = "fast",
+        local_only: bool = False,
         max_tokens: int = 1200,
     ) -> EngineResult:
         """Multi-turn completion with optional tool calling.
@@ -501,7 +508,7 @@ class EngineRouter:
         and never fails.
         """
         self.ensure_current()
-        chain = self._chain(deep=(prefer == "deep"))
+        chain = self._chain(deep=(prefer == "deep"), local_only=local_only)
         fallbacks: list[str] = []
 
         for engine in chain:
