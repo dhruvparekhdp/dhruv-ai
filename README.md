@@ -137,9 +137,14 @@ Host laptop — Debian 13, headless · i5-1235U · 16 GB
 
 **Full walkthrough: [`docs/SETUP-HOST.md`](docs/SETUP-HOST.md).**
 
-API keys — both optional, and Jarvis runs without either:
+API keys — optional, and Jarvis runs without them:
 - Groq — <https://console.groq.com> → `GROQ_API_KEY`
 - Google AI Studio — <https://aistudio.google.com> → `GEMINI_API_KEY`
+- Tavily search — `SEARCH_API_KEY`
+- Ollama — `JARVIS_OLLAMA`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`
+
+The signed-in Keys page can store a value when the matching variable is unset.
+An environment value is shown as environment-managed and is not replaced.
 
 ---
 
@@ -152,6 +157,11 @@ API keys — both optional, and Jarvis runs without either:
 | `GEMINI_API_KEY` | _(none)_ | Deep-reasoning engine. |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | See the model note below. |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | |
+| `SEARCH_API_KEY` | _(none)_ | Tavily, used by `web.search`. |
+| `JARVIS_OLLAMA` | `false` | Enable the local Ollama engine. |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama API. |
+| `OLLAMA_MODEL` | `qwen2.5:7b-instruct` | |
+| `JARVIS_SETTINGS_KEY` | passcode | Seals provider secrets saved from the Keys page. |
 | `DATABASE_URL` | _(none)_ | Unset → SQLite. Postgres URL → durable storage. |
 | `JARVIS_DB_PATH` | `jarvis_system.db` | SQLite file location. |
 | `JARVIS_DEBUG` | `false` | Verbose logging, and exception text on 500/502. Off, those responses stay generic. |

@@ -70,6 +70,18 @@
     </form>
   </section>
 
+  <section class="card" aria-labelledby="gateway-heading">
+    <h2 id="gateway-heading">AI gateway</h2>
+    <p class="hint">Only the providers this app can call. Echo is the local fallback when no model is configured.</p>
+    <div id="gateway-list" class="gateway-list"></div>
+  </section>
+
+  <section class="card" aria-labelledby="keys-heading">
+    <h2 id="keys-heading">Keys</h2>
+    <p class="hint">Saved on this server. Nothing on this page is written to browser storage. A value that comes from the environment stays read-only.</p>
+    <div id="provider-settings"></div>
+  </section>
+
   <!-- Approvals: rendered only when something is parked awaiting a decision -->
   <section id="approvals" class="card approvals hidden" aria-labelledby="approvals-heading">
     <h2 id="approvals-heading">⚠️ Approval needed</h2>

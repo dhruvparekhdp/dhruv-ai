@@ -198,6 +198,12 @@ GEMINI_API_KEY=<from aistudio.google.com>
 DATABASE_URL=postgresql://jarvis:<password>@localhost/jarvis
 ```
 
+The same keys can be saved from the Keys page after you sign in. A variable
+that is already set in this file stays in force: the page shows it as
+environment-managed and will not replace it. Saved values are sealed in the
+database (`JARVIS_SETTINGS_KEY`, or the passcode when that is unset) and apply
+on the next request. They are not stored in the browser.
+
 Set up the local database:
 
 ```bash

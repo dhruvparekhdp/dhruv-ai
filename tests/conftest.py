@@ -49,6 +49,7 @@ _TABLES = (
     "agy_contacts", "agy_clients", "agy_brands", "agy_schema_migrations",
     "work_tasks",
     "alerts",
+    "provider_settings",
 )
 
 
@@ -69,6 +70,13 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.delenv("JARVIS_ALLOW_PUBLIC_BIND", raising=False)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("SEARCH_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_MODEL", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.delenv("JARVIS_OLLAMA", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("JARVIS_SETTINGS_KEY", raising=False)
     # A developer's real bot token must never reach a test: the app would start
     # long-polling it and answer the owner's real chat.
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
@@ -91,10 +99,12 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     from app.core.config import get_settings
     from app.core.http_guard import reset_rate_limits
     from app.core.security import reset_auth_state
+    from app.settings.providers import reset_key_cache
 
     get_settings.cache_clear()
     reset_auth_state()
     reset_rate_limits()
+    reset_key_cache()
     if TEST_DATABASE_URL:
         _reset_postgres()
 
@@ -102,6 +112,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     get_settings.cache_clear()
     reset_auth_state()
     reset_rate_limits()
+    reset_key_cache()
 
 
 class ScriptedEngine:

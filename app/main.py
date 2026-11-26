@@ -77,6 +77,7 @@ from app.schedule import jobs as schedule_jobs
 from app.schedule import runner as schedule_runner
 from app.schedule import store as schedule_store
 from app.services.websocket_manager import ws_manager
+from app.settings import providers as provider_settings
 from app.todos import reminders as todo_reminders
 from app.todos import seed as todo_seed
 from app.todos import store as todo_store
@@ -109,6 +110,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         raise
 
     telemetry.init_db()
+    provider_settings.init_db()
     usage_ledger.init_db()
     mission_store.init_db()
     memory_store.init_db()
@@ -157,6 +159,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             recovered["tasks_requeued"], recovered["missions_resumed"],
         )
 
+    # Saved keys have to be visible in this line. The router is built at import,
+    # which is before this table exists on a first boot.
+    orchestrator.engines.ensure_current()
     log.info(
         "Jarvis up | storage=%s | engines=%s | auth=%s | bind=%s | agents=%s | tools=%d",
         settings.storage_backend,
@@ -451,12 +456,14 @@ async def ready() -> JSONResponse:
     """
     database_ok = ping_database()
     scheduler_ok = hasattr(scheduler, "_running")
-    settings = get_settings()
+    orchestrator.engines.ensure_current()
+    live = orchestrator.engines.settings
     integrations = {
         "echo": "configured",
-        "groq": "configured" if settings.groq_enabled else "unconfigured",
-        "gemini": "configured" if settings.gemini_enabled else "unconfigured",
-        "search": "configured" if settings.search_api_key else "unconfigured",
+        "groq": "configured" if live.groq_enabled else "unconfigured",
+        "gemini": "configured" if live.gemini_enabled else "unconfigured",
+        "search": "configured" if live.search_api_key else "unconfigured",
+        "ollama": "configured" if live.ollama_enabled else "unconfigured",
         "telegram": "configured" if todo_reminders.configured() else "unconfigured",
     }
     ok = database_ok and scheduler_ok
@@ -506,6 +513,71 @@ async def logout(
     """Revoke the presented session token. A passcode-only call has nothing to revoke."""
     revoke_token(presented_token(x_jarvis_token, authorization))
     return {"status": "success"}
+
+
+class ProviderUpdate(BaseModel):
+    fields: dict[str, str] = Field(default_factory=dict)
+
+
+class ProviderReveal(BaseModel):
+    field: str = Field(min_length=1, max_length=64)
+
+
+def _provider_error(exc: provider_settings.ProviderSettingsError) -> HTTPException:
+    if isinstance(exc, provider_settings.UnknownProviderError):
+        return HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+    if isinstance(exc, provider_settings.ManagedByEnvironmentError):
+        return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+
+
+@app.get("/api/v1/settings/providers", tags=["settings"])
+async def list_provider_settings(_: Guarded) -> dict[str, Any]:
+    """Configured or not, and where the value came from. Never the secret."""
+    return {"providers": provider_settings.public_status()}
+
+
+@app.put("/api/v1/settings/providers/{provider_id}", tags=["settings"])
+async def save_provider_settings(provider_id: str, req: ProviderUpdate, _: Guarded) -> dict[str, Any]:
+    try:
+        provider_settings.save(provider_id, req.fields)
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_error(exc) from exc
+    orchestrator.engines.ensure_current()
+    return {"status": "success", "provider": provider_settings.public_provider(provider_id)}
+
+
+@app.delete("/api/v1/settings/providers/{provider_id}", tags=["settings"])
+async def clear_provider_setting(
+    provider_id: str,
+    _: Guarded,
+    field: str = Query(min_length=1, max_length=64),
+) -> dict[str, Any]:
+    try:
+        provider_settings.clear(provider_id, field)
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_error(exc) from exc
+    orchestrator.engines.ensure_current()
+    return {"status": "success", "provider": provider_settings.public_provider(provider_id)}
+
+
+@app.post("/api/v1/settings/providers/{provider_id}/reveal", tags=["settings"])
+async def reveal_provider_setting(provider_id: str, req: ProviderReveal, _: Guarded) -> dict[str, str]:
+    """Return one secret to the signed-in owner. Not logged, not written to telemetry."""
+    try:
+        value = provider_settings.reveal(provider_id, req.field)
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_error(exc) from exc
+    return {"field": req.field, "value": value}
+
+
+@app.post("/api/v1/settings/providers/{provider_id}/check", tags=["settings"])
+async def check_provider(provider_id: str, _: Guarded) -> dict[str, Any]:
+    try:
+        result = await provider_settings.check(provider_id)
+    except provider_settings.ProviderSettingsError as exc:
+        raise _provider_error(exc) from exc
+    return result
 
 
 @app.get("/api/v1/greeting", tags=["chat"])

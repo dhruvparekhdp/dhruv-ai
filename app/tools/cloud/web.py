@@ -14,7 +14,7 @@ import html
 import re
 from typing import Any
 
-from app.core.config import get_settings
+from app.settings.providers import search_api_key
 from app.tools.policy import PolicyLevel
 from app.tools.registry import Capability, Risk, ToolError, tool
 
@@ -90,8 +90,8 @@ async def web_fetch_tool(url: str, **_: Any) -> str:
     policy=PolicyLevel.EXTERNAL,
 )
 async def web_search_tool(query: str, **_: Any) -> str:
-    settings = get_settings()
-    if not settings.search_api_key:
+    api_key = search_api_key()
+    if not api_key:
         # Honest failure. Inventing plausible-looking results would poison both
         # the answer and the training data collected from it.
         raise ToolError(
@@ -101,16 +101,22 @@ async def web_search_tool(query: str, **_: Any) -> str:
 
     try:
         import httpx
+    except ImportError as exc:  # pragma: no cover - httpx ships with the app
+        raise ToolError("httpx is not installed") from exc
 
+    try:
         async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             response = await client.post(
                 "https://api.tavily.com/search",
-                json={"api_key": settings.search_api_key, "query": query, "max_results": 5},
+                json={"api_key": api_key, "query": query, "max_results": 5},
             )
         response.raise_for_status()
-        results = response.json().get("results", [])
-    except Exception as exc:
-        raise ToolError(f"search failed: {exc}") from exc
+        payload = response.json()
+        results = payload.get("results", []) if isinstance(payload, dict) else []
+    except (httpx.HTTPError, ValueError, AttributeError, TypeError) as exc:
+        # The client sees a fixed sentence. Provider bodies and httpx errors
+        # can repeat the key that was just sent.
+        raise ToolError("search failed") from exc
 
     if not results:
         return f"No results for '{query}'."

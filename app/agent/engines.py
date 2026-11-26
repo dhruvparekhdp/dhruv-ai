@@ -25,7 +25,8 @@ from typing import Any
 from app.agent import llm_budget
 from app.agent import router as intent_router
 from app.core import usage as usage_ledger
-from app.core.config import Settings, get_settings
+from app.core.config import Settings
+from app.settings import providers as provider_settings
 
 log = logging.getLogger("jarvis.engines")
 
@@ -113,9 +114,16 @@ class GroqEngine:
         try:
             completion = self._get_client().chat.completions.create(**kwargs)
         except Exception as exc:
-            if "429" in str(exc):
+            # Status only. The exception text is not logged and not returned:
+            # provider SDKs sometimes include the request, and the request
+            # contains the key.
+            status = getattr(exc, "status_code", None)
+            if status is None:
+                response = getattr(exc, "response", None)
+                status = getattr(response, "status_code", None)
+            if status == 429:
                 llm_budget.mark_cooled(self.provider, 60.0)
-            raise EngineError(f"Groq call failed: {exc}") from exc
+            raise EngineError("Groq call failed") from exc
 
         choice = completion.choices[0].message
         calls: list[ToolCall] = []
@@ -244,7 +252,7 @@ class GeminiEngine:
                 config=types.GenerateContentConfig(**config_kwargs),
             )
         except Exception as exc:
-            raise EngineError(f"Gemini call failed: {exc}") from exc
+            raise EngineError("Gemini call failed") from exc
 
         calls: list[ToolCall] = []
         text_chunks: list[str] = []
@@ -300,7 +308,7 @@ class OllamaEngine:
                 response.raise_for_status()
                 body = response.json()
         except Exception as exc:
-            raise EngineError(f"Ollama call failed: {exc}") from exc
+            raise EngineError("Ollama call failed") from exc
 
         message = body.get("message") or {}
         text = (message.get("content") or "").strip()
@@ -380,8 +388,8 @@ class EchoEngine:
             else:
                 text = (
                     "I hear you, but I'm on the local fallback engine -- no model key is "
-                    "configured, so I can't reason about that properly yet. Set GROQ_API_KEY "
-                    "or GEMINI_API_KEY and restart, and I'll answer for real."
+                    "configured, so I can't reason about that properly yet. Add a Groq or "
+                    "Gemini key in Keys, or set it in the environment, and I'll answer for real."
                 )
 
         return EngineResult(
@@ -401,15 +409,36 @@ class EngineRouter:
     """Chooses an engine per intent and falls back on failure."""
 
     def __init__(self, settings: Settings | None = None) -> None:
-        self.settings = settings or get_settings()
+        # A caller that passes settings is pinning a snapshot (tests). The
+        # process-wide router follows the Keys page, which can change the
+        # overlay without a restart.
+        self._pinned = settings is not None
+        self._revision = ""
+        self._apply(settings if settings is not None else provider_settings.effective_settings())
+        if not self._pinned:
+            self._revision = provider_settings.revision()
+
+    def _apply(self, settings: Settings) -> None:
+        self.settings = settings
         self.groq = GroqEngine(self.settings) if self.settings.groq_enabled else None
         self.gemini = GeminiEngine(self.settings) if self.settings.gemini_enabled else None
         self.ollama = OllamaEngine(self.settings) if self.settings.ollama_enabled else None
         self.echo = EchoEngine()
 
+    def ensure_current(self) -> None:
+        """Rebuild engines when a saved key or an env var changed."""
+        if self._pinned:
+            return
+        revision = provider_settings.revision()
+        if revision == self._revision:
+            return
+        self._apply(provider_settings.effective_settings())
+        self._revision = revision
+
     # -- introspection ---------------------------------------------------
 
     def available(self) -> list[str]:
+        self.ensure_current()
         names = []
         if self.groq:
             names.append("groq")
@@ -423,15 +452,18 @@ class EngineRouter:
     @property
     def is_degraded(self) -> bool:
         """True when no cloud or local model engine is configured."""
+        self.ensure_current()
         return self.groq is None and self.gemini is None and self.ollama is None
 
     def describe(self) -> dict[str, Any]:
+        self.ensure_current()
         return {
             "available": self.available(),
             "degraded": self.is_degraded,
             "groq_model": self.settings.groq_model if self.groq else None,
             "gemini_model": self.settings.gemini_model if self.gemini else None,
             "ollama_model": self.settings.ollama_model if self.ollama else None,
+            "search": "configured" if self.settings.search_api_key else "unconfigured",
         }
 
     # -- selection -------------------------------------------------------
@@ -468,15 +500,18 @@ class EngineRouter:
         returns nothing usable is skipped; the echo engine terminates the chain
         and never fails.
         """
+        self.ensure_current()
         chain = self._chain(deep=(prefer == "deep"))
         fallbacks: list[str] = []
 
         for engine in chain:
             try:
                 result = engine.chat(messages, tools, max_tokens)
-            except EngineError as exc:
-                log.warning("engine %s failed, falling back: %s", engine.provider, exc)
-                fallbacks.append(f"{engine.provider}: {exc}")
+            except EngineError:
+                # The exception text is omitted on purpose: provider SDKs put
+                # request details, sometimes including the key, in the message.
+                log.warning("engine %s failed, falling back", engine.provider)
+                fallbacks.append(f"{engine.provider}: unavailable")
                 continue
 
             # A tool call with no prose is a perfectly good response.
@@ -498,6 +533,7 @@ class EngineRouter:
 
     def complete(self, *, intent: str, system_prompt: str, user_prompt: str) -> EngineResult:
         """Run the completion, walking the fallback chain on failure."""
+        self.ensure_current()
         chain = self._chain_for(intent)
         fallbacks: list[str] = []
 
@@ -505,9 +541,9 @@ class EngineRouter:
             started = time.perf_counter()
             try:
                 result = engine.complete(system_prompt, user_prompt)
-            except EngineError as exc:
-                log.warning("engine %s failed, falling back: %s", engine.provider, exc)
-                fallbacks.append(f"{engine.provider}: {exc}")
+            except EngineError:
+                log.warning("engine %s failed, falling back", engine.provider)
+                fallbacks.append(f"{engine.provider}: unavailable")
                 continue
 
             if not result.text:

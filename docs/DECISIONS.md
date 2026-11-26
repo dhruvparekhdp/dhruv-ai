@@ -642,3 +642,24 @@ reported as unavailable or invalid, and the field list stays empty.
 
 The token is `OCR_API_TOKEN`, read at call time. The local path is not sent;
 only the file's base name is. The tool is capability READ and risk SAFE.
+
+---
+
+## D-041 · Provider keys saved in the UI never override the environment
+
+Groq, Gemini, Tavily (`SEARCH_API_KEY`), and Ollama are the only model and
+search integrations the process can call. The Keys page lists those and the
+local echo fallback. It does not list providers that are not wired up.
+
+A non-empty environment variable wins for that field. Save and clear return
+409 and leave the running value alone. When the variable is unset, a value
+saved from the UI is sealed in `provider_settings` and the engine router
+picks it up on the next call, without a restart. The seal key is
+`JARVIS_SETTINGS_KEY`, or the passcode when that is unset. A row that cannot
+be opened is reported as unreadable. It is not logged.
+
+Status responses name the source (`environment`, `saved`, `default`,
+`unset`, `unreadable`) and omit secrets. Reveal is its own authenticated
+call. Connection checks return a status word. They do not return the
+provider body. Secrets are not written to browser storage, query strings,
+logs, or telemetry.

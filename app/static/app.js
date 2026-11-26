@@ -40,6 +40,7 @@
     memoryNewKey: $("memory-new-key"), memoryNewValue: $("memory-new-value"),
     todoVerdict: $("todo-verdict"), todoNext: $("todo-next"), todoAddForm: $("todo-add-form"),
     todoTitle: $("todo-title"), todoList: $("todo-list"),
+    gatewayList: $("gateway-list"), providerSettings: $("provider-settings"),
   };
 
   let token = localStorage.getItem(TOKEN_KEY) || "";
@@ -835,6 +836,220 @@
     } catch (_) { /* stats are decorative */ }
   }
 
+  // --- provider settings (values stay in this page's inputs; not stored) ---
+
+  const SOURCE_TEXT = {
+    environment: "From the environment",
+    saved: "Saved in this app",
+    default: "Default",
+    unset: "Not set",
+    unreadable: "Saved value can't be read. Enter it again.",
+  };
+
+  const CHECK_TEXT = {
+    reachable: "Connection ok.",
+    auth_failed: "The provider rejected the credentials.",
+    missing: "Nothing is configured to check.",
+    unreachable: "Could not reach the provider.",
+    invalid: "That address cannot be used.",
+    disabled: "Ollama is turned off.",
+  };
+
+  function fieldLabel(name) {
+    if (name === "api_key") return "API key";
+    if (name === "base_url") return "Base URL";
+    if (name === "model") return "Model";
+    if (name === "enabled") return "Enabled";
+    return name;
+  }
+
+  function primaryField(provider) {
+    const fields = provider.fields || [];
+    if (provider.id === "ollama") return fields.find((field) => field.name === "enabled") || fields[0];
+    return fields.find((field) => field.name === "api_key") || fields[0];
+  }
+
+  function renderGateway(providers) {
+    el.gatewayList.replaceChildren();
+    const echo = document.createElement("div");
+    echo.className = "gateway-row";
+    const echoName = document.createElement("span");
+    echoName.textContent = "Echo";
+    const echoState = document.createElement("span");
+    echoState.className = "badge good";
+    echoState.textContent = "configured · local fallback";
+    echo.append(echoName, echoState);
+    el.gatewayList.append(echo);
+
+    providers.forEach((provider) => {
+      const row = document.createElement("div");
+      row.className = "gateway-row";
+      const label = document.createElement("span");
+      label.textContent = provider.label;
+      const state = document.createElement("span");
+      state.className = `badge ${provider.configured ? "good" : "warn"}`;
+      const field = primaryField(provider);
+      const source = field ? SOURCE_TEXT[field.source] || field.source : "";
+      state.textContent = `${provider.configured ? "configured" : "not configured"}${source ? ` · ${source}` : ""}`;
+      row.append(label, state);
+      el.gatewayList.append(row);
+    });
+  }
+
+  function renderField(provider, field, note) {
+    const block = document.createElement("div");
+    block.className = "field-block";
+    const label = document.createElement("span");
+    label.className = "field-label";
+    label.textContent = `${fieldLabel(field.name)} — ${SOURCE_TEXT[field.source] || field.source}`;
+
+    const input = document.createElement("input");
+    input.type = field.secret ? "password" : "text";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.maxLength = field.secret ? 512 : 200;
+    if (!field.secret && typeof field.value === "string") input.value = field.value;
+    if (field.name === "enabled") input.placeholder = "true or false";
+    if (field.managed) input.readOnly = true;
+
+    const actions = document.createElement("div");
+    actions.className = "key-actions";
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "primary";
+    save.textContent = "Save";
+    save.disabled = !!field.managed;
+    save.addEventListener("click", async () => {
+      const value = input.value.trim();
+      if (!value) {
+        note.textContent = "Enter a value to save, or use Clear.";
+        return;
+      }
+      try {
+        await api(`/api/v1/settings/providers/${encodeURIComponent(provider.id)}`, {
+          method: "PUT",
+          body: { fields: { [field.name]: value } },
+        });
+        if (field.secret) input.value = "";
+        note.textContent = "Saved.";
+        await loadProviderSettings();
+      } catch (err) {
+        note.textContent = err.message;
+      }
+    });
+
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "ghost";
+    clear.textContent = "Clear";
+    clear.disabled = !!field.managed;
+    clear.addEventListener("click", async () => {
+      try {
+        await api(
+          `/api/v1/settings/providers/${encodeURIComponent(provider.id)}?field=${encodeURIComponent(field.name)}`,
+          { method: "DELETE" },
+        );
+        input.value = "";
+        note.textContent = "Cleared.";
+        await loadProviderSettings();
+      } catch (err) {
+        note.textContent = err.message;
+      }
+    });
+    actions.append(save, clear);
+
+    if (field.secret) {
+      const reveal = document.createElement("button");
+      reveal.type = "button";
+      reveal.className = "ghost";
+      reveal.textContent = "Reveal";
+      const hide = document.createElement("button");
+      hide.type = "button";
+      hide.className = "ghost";
+      hide.textContent = "Hide";
+      hide.disabled = true;
+      reveal.addEventListener("click", async () => {
+        if (!input.value) {
+          try {
+            const data = await api(`/api/v1/settings/providers/${encodeURIComponent(provider.id)}/reveal`, {
+              method: "POST",
+              body: { field: field.name },
+            });
+            input.value = data.value || "";
+          } catch (err) {
+            note.textContent = err.message;
+            return;
+          }
+        }
+        input.type = "text";
+        hide.disabled = false;
+      });
+      hide.addEventListener("click", () => {
+        input.type = "password";
+        hide.disabled = true;
+      });
+      actions.append(reveal, hide);
+    }
+
+    block.append(label, input, actions);
+    return block;
+  }
+
+  function renderKeys(providers) {
+    el.providerSettings.replaceChildren();
+    providers.forEach((provider) => {
+      const card = document.createElement("article");
+      card.className = "provider-card";
+      const head = document.createElement("div");
+      head.className = "provider-head";
+      const title = document.createElement("h3");
+      title.textContent = provider.label;
+      const badge = document.createElement("span");
+      badge.className = `badge ${provider.configured ? "good" : "warn"}`;
+      badge.textContent = provider.configured ? "configured" : "not configured";
+      head.append(title, badge);
+
+      const note = document.createElement("p");
+      note.className = "provider-note";
+      note.setAttribute("role", "status");
+      card.append(head);
+      (provider.fields || []).forEach((field) => card.append(renderField(provider, field, note)));
+
+      const check = document.createElement("button");
+      check.type = "button";
+      check.className = "ghost";
+      check.textContent = "Check connection";
+      check.addEventListener("click", async () => {
+        note.textContent = "Checking…";
+        try {
+          const result = await api(`/api/v1/settings/providers/${encodeURIComponent(provider.id)}/check`, {
+            method: "POST",
+          });
+          let text = CHECK_TEXT[result.status] || "Check finished.";
+          if (result.model_present === false) text += " The configured model is not on that server.";
+          note.textContent = text;
+        } catch (err) {
+          note.textContent = err.message;
+        }
+      });
+      card.append(check, note);
+      el.providerSettings.append(card);
+    });
+  }
+
+  async function loadProviderSettings() {
+    try {
+      const data = await api("/api/v1/settings/providers");
+      const providers = data.providers || [];
+      renderGateway(providers);
+      renderKeys(providers);
+    } catch (err) {
+      el.gatewayList.textContent = `Couldn't load provider status: ${err.message}`;
+    }
+  }
+
+  // --- end provider settings ---
+
   // ----------------------------------------------------------------- boot
 
   function renderHealth(health) {
@@ -850,7 +1065,7 @@
 
     const warnings = [];
     if (degraded) {
-      warnings.push("No model key configured — replies come from the local fallback engine. Set GROQ_API_KEY or GEMINI_API_KEY.");
+      warnings.push("No model key configured — replies come from the local fallback. Add a Groq or Gemini key under Keys.");
     }
     if (!health.storage_durable) {
       warnings.push("SQLite on an ephemeral host: check-ins are wiped on redeploy. Set DATABASE_URL to keep them.");
@@ -900,6 +1115,7 @@
       renderScopeChips();
       loadMemory();
       loadTodos();
+      loadProviderSettings();
     } catch (err) {
       if (err.unauthorized) {
         clearToken();
