@@ -642,3 +642,20 @@ reported as unavailable or invalid, and the field list stays empty.
 
 The token is `OCR_API_TOKEN`, read at call time. The local path is not sent;
 only the file's base name is. The tool is capability READ and risk SAFE.
+
+---
+
+## D-041 · A task workspace is read before it is run
+
+`POST /api/v1/project-workspaces` reserves one empty directory under
+`JARVIS_WORKSPACE_ROOT` and records it for a mission and task. The directory
+starts durable as `PREPARING` and becomes `READY` once that row is stored.
+Ready means the directory can be inspected. It does not mean a repository was
+cloned or a command was run.
+
+`repo.inspect`, `repo.read`, and `repo.search` are capability READ and risk
+SAFE. They accept a workspace id from the same mission, resolve the path, and
+refuse `..`, a symlink, or a path that leaves that directory. Secret-shaped
+paths (`.env`, keys, `.git`) are skipped. README text, manifests, and search
+lines are returned as untrusted data and are redacted. Nothing in those tools
+starts a process.

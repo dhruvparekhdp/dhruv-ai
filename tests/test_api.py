@@ -185,7 +185,8 @@ def test_agents_and_tools_are_listed(client) -> None:
     ids = {a["id"] for a in agents["agents"]}
     assert ids == {
         "assistant", "crypto_analyst", "memory", "nse_analyst", "operator",
-        "planner", "portfolio_analyst", "research", "risk_analyst", "trading_research",
+        "planner", "portfolio_analyst", "project_workshop", "research", "risk_analyst",
+        "trading_research",
     }
     assert agents["count"] == len(ids)
 

@@ -49,6 +49,7 @@ _TABLES = (
     "agy_contacts", "agy_clients", "agy_brands", "agy_schema_migrations",
     "work_tasks",
     "alerts",
+    "project_workspaces",
 )
 
 
@@ -81,6 +82,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.delenv("JARVIS_MISSION_RATE_LIMIT", raising=False)
     monkeypatch.delenv("JARVIS_LLM_RATE_LIMIT", raising=False)
     monkeypatch.delenv("JARVIS_APPROVAL_TTL_SECONDS", raising=False)
+    monkeypatch.setenv("JARVIS_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
 
     if TEST_DATABASE_URL:
         monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)

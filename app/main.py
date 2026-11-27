@@ -87,6 +87,11 @@ from app.tools.registry import registry as tool_registry
 from app.watchers import store as watcher_store
 from app.work_tasks import store as work_task_store
 from app.work_tasks.models import TaskError
+from app.workspaces import inspect as workspace_inspector
+from app.workspaces import manager as workspace_manager
+from app.workspaces import repo as workspace_repo
+from app.workspaces import store as workspace_store
+from app.workspaces.models import WorkspaceError
 
 configure_logging()
 log = logging.getLogger("jarvis")
@@ -119,6 +124,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     schedule_store.init_db()
     watcher_store.init_db()
     work_task_store.init_db()
+    workspace_store.init_db()
     alert_store.init_db()
 
     # Only writes on a genuinely empty table, so a restart neither duplicates
@@ -407,6 +413,13 @@ class NodeDispatchRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     node_id: str | None = Field(default=None, max_length=100)
     timeout: float = Field(default=60, ge=1, le=300)
+
+
+class ProjectWorkspaceRequest(BaseModel):
+    mission_id: str = Field(min_length=1, max_length=100)
+    task_id: str = Field(min_length=1, max_length=100)
+    source_url: str = Field(default="", max_length=2048)
+    source_repo_id: str = Field(default="", max_length=200)
 
 
 # --------------------------------------------------------------------------
@@ -1114,6 +1127,104 @@ async def complete_work_task(task_id: str, _: Guarded) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 # Fleet
 # --------------------------------------------------------------------------
+
+
+@app.post("/api/v1/project-workspaces", tags=["project-workspaces"], status_code=status.HTTP_201_CREATED)
+async def create_project_workspace(req: ProjectWorkspaceRequest, _: Guarded) -> dict[str, Any]:
+    """Reserve a private empty workspace for an explicitly requested task.
+
+    This endpoint does not clone a repository, download dependencies, or run
+    code. Those actions require the later task-scoped permission flow.
+    """
+    try:
+        workspace = workspace_manager.create_empty_workspace(
+            mission_id=req.mission_id,
+            task_id=req.task_id,
+            source_url=req.source_url,
+            source_repo_id=req.source_repo_id,
+        )
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "workspace": workspace.describe()}
+
+
+@app.get("/api/v1/project-workspaces", tags=["project-workspaces"])
+async def list_project_workspaces(
+    _: Guarded,
+    task_id: str = Query(min_length=1, max_length=100),
+) -> dict[str, Any]:
+    workspaces = workspace_store.list_for_task(task_id)
+    return {
+        "status": "success",
+        "count": len(workspaces),
+        "workspaces": [workspace.describe() for workspace in workspaces],
+    }
+
+
+@app.get("/api/v1/project-workspaces/{workspace_id}", tags=["project-workspaces"])
+async def get_project_workspace(workspace_id: str, _: Guarded) -> dict[str, Any]:
+    workspace = workspace_store.get(workspace_id)
+    if workspace is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workspace not found.")
+    return {"status": "success", "workspace": workspace.describe()}
+
+
+@app.get("/api/v1/project-workspaces/{workspace_id}/inspect", tags=["project-workspaces"])
+async def inspect_project_workspace(workspace_id: str, _: Guarded) -> dict[str, Any]:
+    workspace = workspace_store.get(workspace_id)
+    if workspace is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workspace not found.")
+    if workspace.state.value != "READY":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Workspace is not ready for inspection.")
+    try:
+        summary = workspace_inspector.inspect_workspace(workspace)
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "inspection": summary}
+
+
+@app.get("/api/v1/project-workspaces/{workspace_id}/read", tags=["project-workspaces"])
+async def read_project_workspace_file(
+    workspace_id: str,
+    _: Guarded,
+    path: str = Query(min_length=1, max_length=2048),
+    start_line: int = Query(default=1, ge=1),
+    line_count: int = Query(default=200, ge=1, le=500),
+) -> dict[str, Any]:
+    workspace = workspace_store.get(workspace_id)
+    if workspace is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workspace not found.")
+    if workspace.state.value != "READY":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Workspace is not ready for reading.")
+    try:
+        result = workspace_repo.read_file(
+            workspace, path, start_line=start_line, line_count=line_count
+        )
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "file": result}
+
+
+@app.get("/api/v1/project-workspaces/{workspace_id}/search", tags=["project-workspaces"])
+async def search_project_workspace(
+    workspace_id: str,
+    _: Guarded,
+    query: str = Query(min_length=1, max_length=300),
+    file_glob: str = Query(default="", max_length=200),
+    max_results: int = Query(default=50, ge=1, le=100),
+) -> dict[str, Any]:
+    workspace = workspace_store.get(workspace_id)
+    if workspace is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workspace not found.")
+    if workspace.state.value != "READY":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Workspace is not ready for search.")
+    try:
+        result = workspace_repo.search_text(
+            workspace, query, file_glob=file_glob, max_results=max_results
+        )
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "search": result}
 
 
 @app.get("/api/v1/nodes", tags=["fleet"])
