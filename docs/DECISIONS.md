@@ -667,9 +667,11 @@ starts a process.
 Repository intake copies a public HTTPS repository, or a directory under
 `JARVIS_LOCAL_REPOS`, into the task workspace. The copy is shallow for a
 remote: no submodules, no Git LFS, no hooks, and no credentials in the URL. A
-read-only GitHub token, when set, is used for that clone process and is not
-written to the workspace or passed into a sandbox. The original directory is
-not modified.
+read-only GitHub token, when set, is given to that clone through an askpass
+helper's environment. It is not placed on the git command line, written to the
+workspace, or passed into a sandbox. Only `github.com` on port 443 is accepted,
+and that name must resolve entirely to public addresses. Redirects are
+disabled. The original directory is not modified.
 
 `repo.diff` and `workspace.write_patch` stay inside the task directory.
 `workspace.run_check` accepts a profile name. The server builds the container

@@ -12,7 +12,13 @@ from app.workspaces.models import WorkspaceError
 _GIT_TIMEOUT = 180
 
 
-def run_git(args: list[str], *, cwd: Path, timeout: int = _GIT_TIMEOUT) -> tuple[int, str, str]:
+def run_git(
+    args: list[str],
+    *,
+    cwd: Path,
+    timeout: int = _GIT_TIMEOUT,
+    extra_env: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
     """Run one git command with hooks and local config disabled.
 
     `args` is the git subcommand and its fixed arguments. A shell string is
@@ -37,6 +43,10 @@ def run_git(args: list[str], *, cwd: Path, timeout: int = _GIT_TIMEOUT) -> tuple
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_CONFIG_COUNT": "0",
     }
+    for key, value in (extra_env or {}).items():
+        if not key or "\n" in key or "\x00" in key or "\n" in value or "\x00" in value:
+            raise WorkspaceError("git environment is invalid")
+        env[key] = value
     try:
         done = subprocess.run(  # noqa: S603
             argv,

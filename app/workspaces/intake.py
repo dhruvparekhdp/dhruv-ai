@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
+import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from app.workspaces import store
 from app.workspaces.access import record_event, require_grant
@@ -13,50 +15,53 @@ from app.workspaces.git import run_git
 from app.workspaces.limits import measure_tree
 from app.workspaces.manager import validate_workspace_path, workspace_root
 from app.workspaces.models import Workspace, WorkspaceError, WorkspaceState
+from app.workspaces.urls import validate_public_url
 
 _SKIP = {"node_modules", ".venv", "venv", "__pycache__"}
 
 
-def validate_public_url(url: str) -> str:
-    try:
-        parsed = urlsplit(url)
-        hostname = parsed.hostname
-    except ValueError as exc:
-        raise WorkspaceError("source_url is invalid") from exc
-    if parsed.scheme != "https" or not hostname or parsed.username or parsed.password:
-        raise WorkspaceError("source_url must be an HTTPS URL without embedded credentials")
-    if parsed.query or parsed.fragment:
-        raise WorkspaceError("source_url cannot include query strings or fragments")
-    return url
-
-
 def clone_argv(url: str, dest: Path) -> list[str]:
-    """Arguments after the fixed git prefix. The token never appears in the URL."""
+    """Arguments after the fixed git prefix. Credentials are not part of the command."""
     validate_public_url(url)
-    extra: list[str] = []
-    token = os.environ.get("JARVIS_GITHUB_READ_TOKEN", "").strip()
-    host = urlsplit(url).hostname or ""
-    if token and host.endswith("github.com"):
-        extra = ["-c", "http.extraheader=AUTHORIZATION: bearer [REDACTED]"]
     return [
+        # -c has to precede the subcommand. Git ignores it once clone has started.
+        "-c", "http.followRedirects=false",
         "clone", "--depth", "1", "--single-branch", "--no-tags",
         "--no-recurse-submodules", "--config", "core.hooksPath=/dev/null",
-        *extra,
         "--", url, str(dest),
     ]
 
 
-def _clone_args(url: str, dest: Path) -> list[str]:
-    """Same as clone_argv, but the live header is used only for the process."""
-    argv = clone_argv(url, dest)
+def clone_credentials(url: str) -> tuple[dict[str, str], Callable[[], None]]:
+    """Environment for a GitHub read token. The token is not placed in argv.
+
+    Git reads it from the environment through an askpass helper. The helper
+    file contains only the variable name. Redirects are disabled on the clone
+    command so a response cannot retarget the request.
+    """
+    validate_public_url(url, resolve=True)
     token = os.environ.get("JARVIS_GITHUB_READ_TOKEN", "").strip()
-    if token:
-        return [
-            part if part != "http.extraheader=AUTHORIZATION: bearer [REDACTED]"
-            else f"http.extraheader=AUTHORIZATION: bearer {token}"
-            for part in argv
-        ]
-    return argv
+    if not token:
+        return {}, lambda: None
+    if any(character in token for character in "\r\n\x00"):
+        raise WorkspaceError("read token is invalid")
+    directory = Path(tempfile.mkdtemp(prefix="jarvis-askpass-"))
+    os.chmod(directory, stat.S_IRWXU)
+    script = directory / "askpass"
+    script.write_text(
+        "#!/bin/sh\n"
+        "case \"$1\" in\n"
+        "  *[Uu]sername*) printf '%s\\n' 'x-access-token' ;;\n"
+        "  *) printf '%s\\n' \"$JARVIS_GITHUB_READ_TOKEN\" ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    os.chmod(script, stat.S_IRWXU)
+
+    def cleanup() -> None:
+        shutil.rmtree(directory, ignore_errors=True)
+
+    return {"GIT_ASKPASS": str(script), "JARVIS_GITHUB_READ_TOKEN": token}, cleanup
 
 
 def _begin(workspace: Workspace) -> Workspace:
@@ -85,11 +90,17 @@ def _fail(workspace_id: str, code: str) -> None:
 
 def intake_public(workspace: Workspace) -> Workspace:
     """Shallow-clone a public HTTPS repository into the empty task directory."""
-    url = validate_public_url(workspace.source_url)
+    url = validate_public_url(workspace.source_url, resolve=True)
     running = _begin(workspace)
     dest = validate_workspace_path(running, ".")
     try:
-        code, _out, err = run_git(_clone_args(url, dest), cwd=workspace_root(), timeout=180)
+        extra_env, cleanup = clone_credentials(url)
+        try:
+            code, _out, err = run_git(
+                clone_argv(url, dest), cwd=workspace_root(), timeout=180, extra_env=extra_env,
+            )
+        finally:
+            cleanup()
         if code != 0:
             raise WorkspaceError(err.strip() or "repository clone failed")
         hooks = dest / ".git" / "hooks"

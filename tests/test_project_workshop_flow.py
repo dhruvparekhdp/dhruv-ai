@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 import subprocess
 from pathlib import Path
 from typing import Any, cast
@@ -9,8 +10,11 @@ from typing import Any, cast
 import pytest
 from fastapi.testclient import TestClient
 
-from app.workspaces.intake import clone_argv
+from app.workspaces.git import run_git
+from app.workspaces.intake import clone_argv, clone_credentials
+from app.workspaces.models import WorkspaceError
 from app.workspaces.sandbox import container_argv
+from app.workspaces.urls import validate_public_url
 
 
 def _grant(client: TestClient, workspace_id: str, category: str) -> None:
@@ -168,17 +172,78 @@ def test_sandbox_command_is_isolated(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert networked[networked.index("--publish") + 1] == "127.0.0.1::8000"
 
 
-def test_clone_command_disables_hooks_and_hides_the_token(
+def _public_github(monkeypatch: pytest.MonkeyPatch) -> None:
+    def resolve(*_args: object, **_kwargs: object) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("140.82.112.3", 443))]
+
+    monkeypatch.setattr("app.workspaces.urls.socket.getaddrinfo", resolve)
+
+
+def test_clone_rejects_private_and_lookalike_destinations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def deny(*_args: object, **_kwargs: object) -> list[object]:
+        raise AssertionError("a rejected host was resolved")
+
+    monkeypatch.setattr("app.workspaces.urls.socket.getaddrinfo", deny)
+    for url in (
+        "https://127.0.0.1/example/demo.git",
+        "https://10.1.2.3/example/demo.git",
+        "https://192.168.1.9/example/demo.git",
+        "https://169.254.169.254/latest",
+        "https://github.com:8443/example/demo.git",
+        "https://attackergithub.com/example/demo.git",
+        "https://github.com.evil.com/example/demo.git",
+        "https://github.com./example/demo.git",
+        "https://user:token@github.com/example/demo.git",
+        "http://github.com/example/demo.git",
+    ):
+        with pytest.raises(WorkspaceError):
+            validate_public_url(url, resolve=True)
+
+    def private(*_args: object, **_kwargs: object) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))]
+
+    monkeypatch.setattr("app.workspaces.urls.socket.getaddrinfo", private)
+    with pytest.raises(WorkspaceError, match="public address"):
+        validate_public_url("https://github.com/example/demo.git", resolve=True)
+
+
+def test_clone_command_keeps_the_token_out_of_argv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("JARVIS_GITHUB_READ_TOKEN", "ghp_test_value_123456")
+    _public_github(monkeypatch)
     argv = clone_argv("https://github.com/example/demo.git", tmp_path / "dest")
     text = " ".join(argv)
     assert "--depth" in argv
     assert "--no-recurse-submodules" in argv
     assert "core.hooksPath=/dev/null" in text
+    assert "http.followRedirects=false" in text
     assert "ghp_test_value_123456" not in text
-    assert "[REDACTED]" in text
+    assert "extraheader" not in text
+    extra_env, cleanup = clone_credentials("https://github.com/example/demo.git")
+    try:
+        assert extra_env["JARVIS_GITHUB_READ_TOKEN"] == "ghp_test_value_123456"  # noqa: S105
+        script = Path(extra_env["GIT_ASKPASS"]).read_text(encoding="utf-8")
+        assert "ghp_test_value_123456" not in script
+        captured: dict[str, object] = {}
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured["command"] = command
+            captured["env"] = kwargs.get("env")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        monkeypatch.setattr("app.workspaces.git.subprocess.run", fake_run)
+        run_git(argv, cwd=tmp_path, extra_env=extra_env)
+        command = captured["command"]
+        assert isinstance(command, list)
+        assert "ghp_test_value_123456" not in " ".join(str(part) for part in command)
+        env = captured["env"]
+        assert isinstance(env, dict)
+        assert env["JARVIS_GITHUB_READ_TOKEN"] == "ghp_test_value_123456"  # noqa: S105
+    finally:
+        cleanup()
 
 
 def test_repeated_failure_stops_without_a_fabricated_pass(
