@@ -268,6 +268,11 @@ All of this is also clickable in Cockpit under **Services** and **Logs**.
 
 ---
 
+Project workspaces live under `JARVIS_WORKSPACE_ROOT` (default
+`~/.local/share/jarvis/workspaces`). The host can inventory a ready workspace
+and read or search its text. It does not clone, install dependencies, or run
+project commands from that directory.
+
 ## Still open (Horizon B)
 
 Phase 3 **core** (node protocol + PC agent) is already in the repo. Still to land:
