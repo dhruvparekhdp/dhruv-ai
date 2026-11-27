@@ -659,3 +659,25 @@ refuse `..`, a symlink, or a path that leaves that directory. Secret-shaped
 paths (`.env`, keys, `.git`) are skipped. README text, manifests, and search
 lines are returned as untrusted data and are redacted. Nothing in those tools
 starts a process.
+
+---
+
+## D-042 · Project checks run in a sandbox or not at all
+
+Repository intake copies a public HTTPS repository, or a directory under
+`JARVIS_LOCAL_REPOS`, into the task workspace. The copy is shallow for a
+remote: no submodules, no Git LFS, no hooks, and no credentials in the URL. A
+read-only GitHub token, when set, is given to that clone through an askpass
+helper's environment. It is not placed on the git command line, written to the
+workspace, or passed into a sandbox. Only `github.com` on port 443 is accepted,
+and that name must resolve entirely to public addresses. Redirects are
+disabled. The original directory is not modified.
+
+`repo.diff` and `workspace.write_patch` stay inside the task directory.
+`workspace.run_check` accepts a profile name. The server builds the container
+command: no privileged mode, no host network, no Docker socket, and no host
+home mount. Network and a localhost preview port require their own grants.
+If Podman or rootless Docker is not configured, the check is refused and the
+README is not executed. A repeated failing check stops the repair loop. The
+loop does not invent a passing result. Push, pull request, merge, and release
+are not grant categories.

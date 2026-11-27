@@ -94,6 +94,19 @@
     <div id="mission-list" class="mission-list"></div>
   </section>
 
+  <section class="card" aria-labelledby="workshop-heading">
+    <h2 id="workshop-heading">Project workshop</h2>
+    <p class="hint">An isolated task directory. Repository text is untrusted. Checks run only in a sandbox after you grant that scope, and a missing runtime refuses to run them on this machine.</p>
+    <form id="workshop-form" class="task-form">
+      <input id="workshop-mission" type="text" maxlength="100" placeholder="Mission id" aria-label="Mission id" required />
+      <input id="workshop-task" type="text" maxlength="100" placeholder="Task id" aria-label="Task id" required />
+      <input id="workshop-url" type="url" maxlength="2048" placeholder="https:// public repository" aria-label="Repository URL" />
+      <button type="submit" class="primary">Create</button>
+    </form>
+    <div id="workshop-grants" class="workshop-row"></div>
+    <pre id="workshop-detail" class="workshop-detail"></pre>
+  </section>
+
   <!-- Todos -->
   <section class="card" aria-labelledby="todos-heading">
     <h2 id="todos-heading">Todos</h2>

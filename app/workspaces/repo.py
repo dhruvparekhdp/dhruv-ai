@@ -22,7 +22,7 @@ MAX_DEPTH = 8
 
 _SKIP_DIRS = {
     ".git", ".hg", ".svn", ".ssh", ".aws", ".secrets", ".venv", "venv", "node_modules", "__pycache__",
-    ".tox", ".mypy_cache", ".pytest_cache", "target", "dist", "build",
+    ".tox", ".mypy_cache", ".pytest_cache", "target", "dist", "build", ".jarvis",
 }
 _SAFE_ENV_FILES = {".env.example", ".env.sample", ".env.template", ".env.dist"}
 _SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"}
@@ -98,18 +98,27 @@ def read_file(
     }
 
 
+def is_excluded_path(relative_path: str) -> bool:
+    """True for secret files, VCS metadata, and dependency trees."""
+    return _is_sensitive_path(relative_path)
+
+
 def search_text(
     workspace: Workspace,
     query: str,
     *,
     file_glob: str = "",
     max_results: int = 50,
+    mode: str = "text",
 ) -> dict[str, Any]:
     """Search exact text with strict file, byte, and result budgets."""
     if not query or len(query) > 300:
         raise WorkspaceError("search query must contain 1 to 300 characters")
     if not 1 <= max_results <= MAX_SEARCH_RESULTS:
         raise WorkspaceError("max_results is outside the allowed bounds")
+
+    if mode not in {"text", "path", "symbol"}:
+        raise WorkspaceError("search mode must be text, path, or symbol")
 
     root = validate_workspace_path(workspace, ".")
     results: list[dict[str, Any]] = []
@@ -145,6 +154,17 @@ def search_text(
             if files_seen > MAX_SEARCH_FILES:
                 truncated = True
                 break
+            if mode == "path":
+                if needle in relative.casefold():
+                    results.append({
+                        "path": relative,
+                        "line": 0,
+                        "text_untrusted": relative,
+                    })
+                if len(results) >= max_results:
+                    truncated = True
+                    break
+                continue
             try:
                 raw = _read_bytes(path, MAX_READ_BYTES)
             except WorkspaceError:
@@ -156,15 +176,25 @@ def search_text(
             if b"\0" in raw:
                 continue
             for line_number, line in enumerate(raw.decode("utf-8", errors="replace").splitlines(), 1):
-                if needle in line.casefold():
-                    results.append({
-                        "path": relative,
-                        "line": line_number,
-                        "text_untrusted": redact(line[:MAX_LINE_CHARS]),
-                    })
-                    if len(results) >= max_results:
-                        truncated = True
-                        break
+                folded = line.casefold()
+                if mode == "symbol":
+                    if needle not in folded:
+                        continue
+                    stripped = line.lstrip()
+                    if not stripped.startswith((
+                        "def ", "class ", "function ", "func ", "fn ", "type ", "const ", "let ", "var ",
+                    )):
+                        continue
+                elif needle not in folded:
+                    continue
+                results.append({
+                    "path": relative,
+                    "line": line_number,
+                    "text_untrusted": redact(line[:MAX_LINE_CHARS]),
+                })
+                if len(results) >= max_results:
+                    truncated = True
+                    break
             if len(results) >= max_results:
                 break
         if truncated or len(results) >= max_results:
@@ -173,6 +203,7 @@ def search_text(
     return {
         "workspace_id": workspace.workspace_id,
         "query": query,
+        "mode": mode,
         "count": len(results),
         "truncated": truncated,
         "results_untrusted": results,

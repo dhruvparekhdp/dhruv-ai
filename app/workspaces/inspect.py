@@ -24,7 +24,7 @@ MAX_README_CHARS = 4_000
 
 _SKIP_DIRS = {
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "__pycache__",
-    ".tox", ".mypy_cache", ".pytest_cache", "target", "dist", "build",
+    ".tox", ".mypy_cache", ".pytest_cache", "target", "dist", "build", ".jarvis",
 }
 _MANIFESTS = {
     "pyproject.toml", "requirements.txt", "Pipfile", "Pipfile.lock", "poetry.lock", "uv.lock",

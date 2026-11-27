@@ -6,10 +6,10 @@ import os
 import stat
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from app.workspaces import store
 from app.workspaces.models import Workspace, WorkspaceError, WorkspaceState
+from app.workspaces.urls import validate_public_url
 
 
 def workspace_root() -> Path:
@@ -39,15 +39,7 @@ def create_empty_workspace(
     if not mission_id.strip() or not task_id.strip():
         raise WorkspaceError("mission_id and task_id are required")
     if source_url:
-        try:
-            parsed = urlsplit(source_url)
-            hostname = parsed.hostname
-        except ValueError as exc:
-            raise WorkspaceError("source_url is invalid") from exc
-        if parsed.scheme != "https" or not hostname or parsed.username or parsed.password:
-            raise WorkspaceError("source_url must be an HTTPS URL without embedded credentials")
-        if parsed.query or parsed.fragment:
-            raise WorkspaceError("source_url cannot include query strings or fragments")
+        validate_public_url(source_url)
     root = workspace_root()
     workspace_id = uuid.uuid4().hex
     path = root / workspace_id

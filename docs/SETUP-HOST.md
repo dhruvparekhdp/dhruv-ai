@@ -269,9 +269,12 @@ All of this is also clickable in Cockpit under **Services** and **Logs**.
 ---
 
 Project workspaces live under `JARVIS_WORKSPACE_ROOT` (default
-`~/.local/share/jarvis/workspaces`). The host can inventory a ready workspace
-and read or search its text. It does not clone, install dependencies, or run
-project commands from that directory.
+`~/.local/share/jarvis/workspaces`). Local copies are taken only from
+`JARVIS_LOCAL_REPOS`. A public clone is shallow, ignores submodules, LFS, and
+hooks, and keeps `JARVIS_GITHUB_READ_TOKEN` out of the sandbox. Checks run
+only when `JARVIS_SANDBOX_RUNTIME` is `podman` or `docker` and
+`JARVIS_SANDBOX_IMAGE` names an image that is already present. Without that
+runtime, inspection and edits still work and execution is refused.
 
 ## Still open (Horizon B)
 

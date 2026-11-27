@@ -31,6 +31,9 @@
     stats: $("stats"), exportBtn: $("export-btn"),
     engineBadge: $("engine-badge"), storageBadge: $("storage-badge"),
     missionForm: $("mission-form"), missionInput: $("mission-input"), missionList: $("mission-list"),
+    workshopForm: $("workshop-form"), workshopMission: $("workshop-mission"),
+    workshopTask: $("workshop-task"), workshopUrl: $("workshop-url"),
+    workshopGrants: $("workshop-grants"), workshopDetail: $("workshop-detail"),
     taskForm: $("task-form"), taskTitle: $("task-title"), taskDue: $("task-due"), taskList: $("task-list"),
     alertList: $("alert-list"),
     approvals: $("approvals"), approvalList: $("approval-list"),
@@ -340,6 +343,84 @@
     refreshAlerts();
     return anyActive;
   }
+
+  let workshopId = "";
+
+  function workshopNote(text) {
+    el.workshopDetail.textContent = text;
+  }
+
+  async function workshopPost(path, body) {
+    return api(`/api/v1/project-workspaces/${encodeURIComponent(workshopId)}${path}`, {
+      method: "POST", body,
+    });
+  }
+
+  function workshopButton(label, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost";
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function renderWorkshopActions() {
+    el.workshopGrants.innerHTML = "";
+    ["repository_read", "workspace_write", "build_test"].forEach((category) => {
+      el.workshopGrants.appendChild(workshopButton(category, async () => {
+        try {
+          await workshopPost("/grants", { category });
+          workshopNote(`Granted ${category}.`);
+        } catch (err) {
+          workshopNote(err.message);
+        }
+      }));
+    });
+    el.workshopGrants.appendChild(workshopButton("Inspect", async () => {
+      try {
+        const data = await api(`/api/v1/project-workspaces/${encodeURIComponent(workshopId)}/inspect`);
+        workshopNote(JSON.stringify(data.inspection, null, 2));
+      } catch (err) {
+        workshopNote(err.message);
+      }
+    }));
+    el.workshopGrants.appendChild(workshopButton("Diff", async () => {
+      try {
+        const data = await api(`/api/v1/project-workspaces/${encodeURIComponent(workshopId)}/diff`);
+        workshopNote(JSON.stringify(data.diff, null, 2));
+      } catch (err) {
+        workshopNote(err.message);
+      }
+    }));
+    el.workshopGrants.appendChild(workshopButton("Check", async () => {
+      try {
+        const data = await workshopPost("/checks", { profile: "python-compile" });
+        workshopNote(JSON.stringify(data.check, null, 2));
+      } catch (err) {
+        workshopNote(err.message);
+      }
+    }));
+  }
+
+  el.workshopForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const created = await api("/api/v1/project-workspaces", {
+        method: "POST",
+        body: {
+          mission_id: el.workshopMission.value.trim(),
+          task_id: el.workshopTask.value.trim(),
+          source_url: el.workshopUrl.value.trim(),
+        },
+      });
+      workshopId = created.workspace.workspace_id;
+      workshopNote(`Workspace ${workshopId} is ${created.workspace.state}. Nothing has been cloned or run.`);
+      renderWorkshopActions();
+    } catch (err) {
+      workshopNote(err.message);
+    }
+  });
 
   el.taskForm.addEventListener("submit", async (e) => {
     e.preventDefault();

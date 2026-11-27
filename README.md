@@ -162,6 +162,7 @@ API keys — both optional, and Jarvis runs without either:
 | `JARVIS_RATE_WINDOW_SECONDS` | `60` | Window for both rate limits. |
 | `JARVIS_APPROVAL_TTL_SECONDS` | `900` | How long one approved tool call stays usable. Single-use either way. |
 | `JARVIS_WORKSPACE_ROOT` | `~/.local/share/jarvis/workspaces` | Isolated task directories. Inspection reads only inside one directory. |
+| `JARVIS_SANDBOX_RUNTIME` | _(detect)_ | `podman`, `docker`, or `none`. Empty never falls back to a host shell. |
 
 > **Model note.** The original design document specified `llama-3.3-70b-versatile` as the primary
 > Groq engine. Groq is shutting that model down on **2026-08-16**, so the default here is

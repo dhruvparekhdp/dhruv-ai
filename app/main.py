@@ -87,8 +87,14 @@ from app.tools.registry import registry as tool_registry
 from app.watchers import store as watcher_store
 from app.work_tasks import store as work_task_store
 from app.work_tasks.models import TaskError
+from app.workspaces import access as workspace_access
+from app.workspaces import changes as workspace_changes
+from app.workspaces import checks as workspace_checks
 from app.workspaces import inspect as workspace_inspector
+from app.workspaces import intake as workspace_intake
+from app.workspaces import lifecycle as workspace_lifecycle
 from app.workspaces import manager as workspace_manager
+from app.workspaces import repair as workspace_repair
 from app.workspaces import repo as workspace_repo
 from app.workspaces import store as workspace_store
 from app.workspaces.models import WorkspaceError
@@ -125,6 +131,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     watcher_store.init_db()
     work_task_store.init_db()
     workspace_store.init_db()
+    workspace_access.init_db()
     alert_store.init_db()
 
     # Only writes on a genuinely empty table, so a restart neither duplicates
@@ -420,6 +427,34 @@ class ProjectWorkspaceRequest(BaseModel):
     task_id: str = Field(min_length=1, max_length=100)
     source_url: str = Field(default="", max_length=2048)
     source_repo_id: str = Field(default="", max_length=200)
+
+
+class WorkspaceGrantRequest(BaseModel):
+    category: str = Field(min_length=1, max_length=40)
+    ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+
+
+class WorkspaceIntakeRequest(BaseModel):
+    local_path: str = Field(default="", max_length=2048)
+
+
+class WorkspacePatchRequest(BaseModel):
+    diff: str = Field(min_length=1, max_length=200_000)
+
+
+class WorkspaceCheckRequest(BaseModel):
+    profile: str = Field(min_length=1, max_length=40)
+    network: bool = False
+    preview: bool = False
+
+
+class WorkspaceChecksRequest(BaseModel):
+    profiles: list[str] = Field(min_length=1, max_length=8)
+    network: bool = False
+
+
+class WorkspaceCleanupRequest(BaseModel):
+    confirm: bool = False
 
 
 # --------------------------------------------------------------------------
@@ -1211,6 +1246,7 @@ async def search_project_workspace(
     _: Guarded,
     query: str = Query(min_length=1, max_length=300),
     file_glob: str = Query(default="", max_length=200),
+    mode: str = Query(default="text", pattern="^(text|path|symbol)$"),
     max_results: int = Query(default=50, ge=1, le=100),
 ) -> dict[str, Any]:
     workspace = workspace_store.get(workspace_id)
@@ -1220,11 +1256,163 @@ async def search_project_workspace(
         raise HTTPException(status.HTTP_409_CONFLICT, "Workspace is not ready for search.")
     try:
         result = workspace_repo.search_text(
-            workspace, query, file_glob=file_glob, max_results=max_results
+            workspace, query, file_glob=file_glob, max_results=max_results, mode=mode,
         )
     except WorkspaceError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return {"status": "success", "search": result}
+
+
+def _project_workspace(workspace_id: str) -> Any:
+    workspace = workspace_store.get(workspace_id)
+    if workspace is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workspace not found.")
+    return workspace
+
+
+@app.post("/api/v1/project-workspaces/{workspace_id}/grants", tags=["project-workspaces"])
+async def grant_project_workspace(
+    workspace_id: str, req: WorkspaceGrantRequest, _: Guarded,
+) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        created = workspace_access.grant(workspace, req.category, ttl_seconds=req.ttl_seconds)
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "grant": created}
+
+
+@app.get("/api/v1/project-workspaces/{workspace_id}/grants", tags=["project-workspaces"])
+async def list_project_workspace_grants(workspace_id: str, _: Guarded) -> dict[str, Any]:
+    _project_workspace(workspace_id)
+    return {"status": "success", "grants": workspace_access.list_grants(workspace_id)}
+
+
+@app.post("/api/v1/project-workspaces/{workspace_id}/grants/{grant_id}/revoke", tags=["project-workspaces"])
+async def revoke_project_workspace_grant(workspace_id: str, grant_id: str, _: Guarded) -> dict[str, Any]:
+    _project_workspace(workspace_id)
+    if not workspace_access.revoke(grant_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Grant not found.")
+    return {"status": "success", "grant_id": grant_id}
+
+
+@app.post("/api/v1/project-workspaces/{workspace_id}/intake", tags=["project-workspaces"])
+async def intake_project_workspace(
+    workspace_id: str, req: WorkspaceIntakeRequest, _: Guarded,
+) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        updated = (
+            workspace_intake.intake_local(workspace, req.local_path)
+            if req.local_path else workspace_intake.intake_public(workspace)
+        )
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "workspace": updated.describe()}
+
+
+@app.get("/api/v1/project-workspaces/{workspace_id}/diff", tags=["project-workspaces"])
+async def diff_project_workspace(workspace_id: str, _: Guarded) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        return {"status": "success", "diff": workspace_changes.workspace_diff(workspace)}
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@app.post("/api/v1/project-workspaces/{workspace_id}/patch", tags=["project-workspaces"])
+async def patch_project_workspace(
+    workspace_id: str, req: WorkspacePatchRequest, _: Guarded,
+) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        return {"status": "success", "patch": workspace_changes.apply_patch(workspace, req.diff)}
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@app.post("/api/v1/project-workspaces/{workspace_id}/checks", tags=["project-workspaces"])
+async def check_project_workspace(
+    workspace_id: str, req: WorkspaceCheckRequest, _: Guarded,
+) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        result = workspace_checks.run_check(
+            workspace, req.profile, network=req.network, preview=req.preview,
+        )
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "check": result}
+
+
+@app.post("/api/v1/project-workspaces/{workspace_id}/repair", tags=["project-workspaces"])
+async def repair_project_workspace(
+    workspace_id: str, req: WorkspaceChecksRequest, _: Guarded,
+) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        result = workspace_repair.run_approved_checks(
+            workspace, req.profiles, network=req.network,
+        )
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": "success", "repair": result}
+
+
+@app.get("/api/v1/project-workspaces/{workspace_id}/activity", tags=["project-workspaces"])
+async def project_workspace_activity(workspace_id: str, _: Guarded) -> dict[str, Any]:
+    _project_workspace(workspace_id)
+    return {"status": "success", "events": workspace_access.list_events(workspace_id)}
+
+
+@app.post("/api/v1/project-workspaces/{workspace_id}/pause", tags=["project-workspaces"])
+async def pause_project_workspace(workspace_id: str, _: Guarded) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        updated = workspace_lifecycle.pause(workspace)
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return {"status": "success", "workspace": updated.describe()}
+
+
+@app.post("/api/v1/project-workspaces/{workspace_id}/resume", tags=["project-workspaces"])
+async def resume_project_workspace(workspace_id: str, _: Guarded) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        updated = workspace_lifecycle.resume(workspace)
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return {"status": "success", "workspace": updated.describe()}
+
+
+@app.post("/api/v1/project-workspaces/{workspace_id}/cancel", tags=["project-workspaces"])
+async def cancel_project_workspace(workspace_id: str, _: Guarded) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        updated = workspace_lifecycle.cancel(workspace)
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return {"status": "success", "workspace": updated.describe()}
+
+
+@app.get("/api/v1/project-workspaces/{workspace_id}/cleanup", tags=["project-workspaces"])
+async def preview_project_workspace_cleanup(workspace_id: str, _: Guarded) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        return {"status": "success", "cleanup": workspace_lifecycle.cleanup_preview(workspace)}
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@app.post("/api/v1/project-workspaces/{workspace_id}/cleanup", tags=["project-workspaces"])
+async def cleanup_project_workspace(
+    workspace_id: str, req: WorkspaceCleanupRequest, _: Guarded,
+) -> dict[str, Any]:
+    workspace = _project_workspace(workspace_id)
+    try:
+        return {"status": "success", **workspace_lifecycle.cleanup(workspace, confirm=req.confirm)}
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @app.get("/api/v1/nodes", tags=["fleet"])
