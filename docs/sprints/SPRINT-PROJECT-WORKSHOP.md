@@ -1,21 +1,20 @@
 # Sprint: Project DIY Workshop
 
-**Status:** In progress — workspace and inspection foundation started  
+**Status:** In review — intake, grants, diff, patch, sandbox checks, and the repair stop are implemented  
 **Purpose:** Let Dhruv-AI safely take a software project from a repository URL to a built, tested, reviewable result.
 
 ## Current implementation and handoff
 
-The `codex/project-workspace-foundation` branch contains an initial foundation:
+`codex/project-workshop-complete` continues the foundation branch. It now contains:
 
-- A durable task workspace record with source metadata, task branch, sandbox runtime, lifecycle, and cleanup state.
-- A private per-task directory creator that does not clone, download, or execute project code.
-- Authenticated workspace create/list/get endpoints.
-- A bounded, read-only repository inventory endpoint for workspaces that reach `READY`; the safe repository intake step is not implemented yet.
-- Bounded `repo.read` line-range and exact-text `repo.search` endpoints for ready workspaces; both skip symlinks and impose file, byte, depth, and result limits.
-- A read-only `project_workshop` agent with mission-bound `repo.inspect`, `repo.read`, and `repo.search` tools.
-- Path validation rejects traversal and symlinks and confines reads to the configured workspace root.
+- Durable workspace records, authenticated create/list/get, and read-only inspect, read, and search.
+- Shallow public clone and a granted local copy. The source checkout is not written.
+- Mission-scoped grants, bounded diff, and unified patches inside the task directory.
+- Allowlisted checks that run only in a rootless container. Without that runtime, execution is refused.
+- A repair loop that stops on a repeated failure and does not invent a passing result.
+- Pause, resume, cancel, confirmed cleanup, and a project workshop panel on the Missions page.
 
-Continue this branch by implementing safe repository intake and the scoped approval flow before enabling dependency downloads or execution. Then add bounded `repo.diff`, validated `workspace.write_patch`, and allowlisted `workspace.run_check` tools, the isolated sandbox runner, build/repair loop, and Missions UI. Preserve the current working tree and do not merge or deploy.
+Preserve the current working tree. Do not merge or deploy.
 
 ## ChatGPT to Cursor handoff
 

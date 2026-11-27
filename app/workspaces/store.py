@@ -16,11 +16,13 @@ _TRANSITIONS = {
         WorkspaceState.CLEANUP_PENDING,
     },
     WorkspaceState.RUNNING: {
+        WorkspaceState.READY,
         WorkspaceState.PAUSED,
         WorkspaceState.FAILED,
         WorkspaceState.COMPLETE,
     },
     WorkspaceState.PAUSED: {
+        WorkspaceState.READY,
         WorkspaceState.RUNNING,
         WorkspaceState.FAILED,
         WorkspaceState.CLEANUP_PENDING,
@@ -137,6 +139,32 @@ def list_for_task(task_id: str) -> list[Workspace]:
             (task_id,),
         )
     return [workspace for row in rows if (workspace := _from_row(row)) is not None]
+
+
+def record_intake(
+    workspace_id: str,
+    *,
+    source_revision: str,
+    sandbox_runtime: str,
+) -> Workspace:
+    """Store the revision that was copied in. The value is a git id, not a secret."""
+    current = get(workspace_id)
+    if current is None:
+        raise WorkspaceError("workspace not found")
+    revision = source_revision.strip()[:64]
+    runtime = sandbox_runtime.strip()[:40] or current.sandbox_runtime
+    with get_conn() as conn:
+        execute(
+            conn,
+            """UPDATE project_workspaces
+               SET source_revision = ?, sandbox_runtime = ?, updated_at = ?
+               WHERE workspace_id = ?""",
+            (revision, runtime, _now(), workspace_id),
+        )
+    result = get(workspace_id)
+    if result is None:
+        raise WorkspaceError("workspace was not persisted")
+    return result
 
 
 def transition(workspace_id: str, state: WorkspaceState, *, error_code: str = "") -> Workspace:

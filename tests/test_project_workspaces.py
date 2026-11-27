@@ -134,13 +134,16 @@ def test_credential_source_url_is_refused(client: TestClient) -> None:
 
 def test_repo_tools_stay_read_only(client: TestClient) -> None:
     tools = {tool["name"]: tool for tool in client.get("/api/v1/tools").json()["tools"]}
-    for name in ("repo.inspect", "repo.read", "repo.search"):
+    for name in ("repo.inspect", "repo.read", "repo.search", "repo.diff"):
         assert tools[name]["risk"] == "SAFE"
         assert tools[name]["capability"] == "READ"
         assert tools[name]["requires_node"] is False
     agents = client.get("/api/v1/agents").json()["agents"]
     workshop = next(agent for agent in agents if agent["id"] == "project_workshop")
-    assert set(workshop["tools"]) == {"repo.inspect", "repo.read", "repo.search"}
+    assert set(workshop["tools"]) == {
+        "repo.inspect", "repo.read", "repo.search", "repo.diff",
+        "workspace.intake", "workspace.write_patch", "workspace.run_check", "workspace.run_checks",
+    }
 
 
 def test_unauthenticated_workspace_routes_are_rejected(client: TestClient) -> None:

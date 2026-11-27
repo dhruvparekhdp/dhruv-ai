@@ -234,6 +234,17 @@ button.ghost {
 .mission-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .mission-list:empty { display: none; }
 
+.workshop-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.workshop-detail {
+  margin-top: 12px;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .mission {
   border: 1px solid var(--border);
   border-radius: 12px;

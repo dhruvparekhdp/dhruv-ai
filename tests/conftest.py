@@ -50,6 +50,8 @@ _TABLES = (
     "work_tasks",
     "alerts",
     "project_workspaces",
+    "project_workspace_grants",
+    "project_workspace_events",
 )
 
 
@@ -83,6 +85,10 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.delenv("JARVIS_LLM_RATE_LIMIT", raising=False)
     monkeypatch.delenv("JARVIS_APPROVAL_TTL_SECONDS", raising=False)
     monkeypatch.setenv("JARVIS_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+    monkeypatch.setenv("JARVIS_LOCAL_REPOS", str(tmp_path / "local-repos"))
+    monkeypatch.setenv("JARVIS_SANDBOX_RUNTIME", "none")
+    monkeypatch.delenv("JARVIS_GITHUB_READ_TOKEN", raising=False)
+    monkeypatch.delenv("JARVIS_SANDBOX_IMAGE", raising=False)
 
     if TEST_DATABASE_URL:
         monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
